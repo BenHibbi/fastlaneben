@@ -6,6 +6,13 @@ import { createClient } from '@/lib/supabase/client'
 import type { Client, ClientState } from '@/types/database'
 import { STATE_CONFIG } from '@/lib/state-machine'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
+import {
+  submitIntake,
+  approvePreview,
+  requestRevision,
+  saveFinalContent,
+  uploadClientFile
+} from './actions'
 
 // ============================================================================
 // CONSTANTS
@@ -196,87 +203,29 @@ function IntakeSection({
     setLoading(true)
     setError('')
 
-    const supabase = createClient()
-
-    // Check if client already exists
-    const { data: existingClient } = await supabase
-      .from('clients')
-      .select('id, state')
-      .eq('email', userEmail)
-      .single()
-
-    const intakeData = {
-      goal: formData.goal,
-      goal_other: formData.goal_other,
-      industry_other: formData.industry_other,
-      style: formData.style,
-      description: formData.description,
-      competitors: formData.competitors.split('\n').filter(Boolean)
-    }
-
-    if (existingClient) {
-      const { error: updateError } = await supabase
-        .from('clients')
-        .update({
-          business_name: formData.business_name,
-          industry: formData.industry,
-          location: formData.location,
-          intake_data: intakeData,
-          state: 'LOCKED',
-          state_changed_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        } as never)
-        .eq('id', (existingClient as { id: string }).id)
-
-      if (updateError) {
-        setError('Failed to submit. Please try again.')
-        setLoading(false)
-        return
+    try {
+      const intakeData = {
+        goal: formData.goal,
+        goal_other: formData.goal_other,
+        industry_other: formData.industry_other,
+        style: formData.style,
+        description: formData.description,
+        competitors: formData.competitors.split('\n').filter(Boolean)
       }
 
-      const existingClientData = existingClient as { id: string; state: string }
-      await supabase.from('state_transitions').insert({
-        client_id: existingClientData.id,
-        from_state: existingClientData.state,
-        to_state: 'LOCKED',
-        triggered_by: userId,
-        trigger_type: 'CLIENT',
-        metadata: { action: 'intake_submitted' }
-      } as never)
-    } else {
-      const { data: newClient, error: insertError } = await supabase
-        .from('clients')
-        .insert({
-          user_id: userId,
-          email: userEmail,
-          business_name: formData.business_name,
-          industry: formData.industry,
-          location: formData.location,
-          intake_data: intakeData,
-          state: 'LOCKED'
-        } as never)
-        .select()
-        .single()
+      await submitIntake({
+        business_name: formData.business_name,
+        industry: formData.industry,
+        location: formData.location,
+        intake_data: intakeData
+      })
 
-      if (insertError) {
-        setError('Failed to submit. Please try again.')
-        setLoading(false)
-        return
-      }
-
-      const newClientData = newClient as { id: string }
-      await supabase.from('state_transitions').insert({
-        client_id: newClientData.id,
-        from_state: null,
-        to_state: 'LOCKED',
-        triggered_by: userId,
-        trigger_type: 'CLIENT',
-        metadata: { action: 'intake_submitted' }
-      } as never)
+      onComplete()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to submit. Please try again.')
+    } finally {
+      setLoading(false)
     }
-
-    setLoading(false)
-    onComplete()
   }
 
   const canProceed = () => {
@@ -640,11 +589,14 @@ function PreviewSection({
 }) {
   const [termsAccepted, setTermsAccepted] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [showRevisionModal, setShowRevisionModal] = useState(false)
+  const [revisionNotes, setRevisionNotes] = useState('')
   const [error, setError] = useState('')
 
   const screenshots = (client.preview_screenshots || []) as string[]
+  const revisionsRemaining = (client.revisions_remaining as number) ?? 2
 
-  const handleSubscribe = async () => {
+  const handleApproveAndCheckout = async () => {
     if (!termsAccepted) {
       setError('Please accept the Terms of Service and Privacy Policy to continue.')
       return
@@ -653,25 +605,11 @@ function PreviewSection({
     setSubmitting(true)
     setError('')
 
-    const supabase = createClient()
-
-    // 1. Record terms acceptance
-    const { error: updateError } = await supabase
-      .from('clients')
-      .update({
-        terms_accepted_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      } as never)
-      .eq('id', client.id)
-
-    if (updateError) {
-      setError('Failed to process. Please try again.')
-      setSubmitting(false)
-      return
-    }
-
-    // 2. Redirect to Stripe checkout
     try {
+      // 1. Approve preview - transitions to ACTIVATION state
+      await approvePreview(client.id)
+
+      // 2. Redirect to Stripe checkout
       const res = await fetch('/api/stripe/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -684,12 +622,30 @@ function PreviewSection({
         throw new Error(data.error || 'Failed to create checkout session')
       }
 
-      // Redirect to Stripe
       if (data.url) {
         window.location.href = data.url
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start checkout')
+      setSubmitting(false)
+    }
+  }
+
+  const handleRequestRevision = async () => {
+    if (!revisionNotes.trim()) {
+      setError('Please describe what changes you would like.')
+      return
+    }
+
+    setSubmitting(true)
+    setError('')
+
+    try {
+      await requestRevision(client.id, revisionNotes)
+      setShowRevisionModal(false)
+      onUpdate()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to request revision')
       setSubmitting(false)
     }
   }
@@ -797,7 +753,7 @@ function PreviewSection({
 
         {/* Subscribe button */}
         <button
-          onClick={handleSubscribe}
+          onClick={handleApproveAndCheckout}
           disabled={submitting || !termsAccepted}
           className={`w-full px-8 py-4 rounded-xl font-bold text-lg transition-all ${
             termsAccepted
@@ -809,9 +765,66 @@ function PreviewSection({
         </button>
       </div>
 
+      {/* Revision option */}
+      {revisionsRemaining > 0 && (
+        <div className="text-center mb-6">
+          <p className="text-sm text-slate-500 mb-2">
+            Not quite right? You have {revisionsRemaining} revision{revisionsRemaining !== 1 ? 's' : ''} remaining.
+          </p>
+          <button
+            onClick={() => setShowRevisionModal(true)}
+            disabled={submitting}
+            className="text-sm text-blue-600 hover:text-blue-700 font-medium underline"
+          >
+            Request changes
+          </button>
+        </div>
+      )}
+
       <p className="text-center text-xs text-slate-400">
         Secure payment powered by Stripe
       </p>
+
+      {/* Revision Modal */}
+      {showRevisionModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6">
+            <h3 className="font-medium text-slate-900 text-lg mb-4">Request Revision</h3>
+            <p className="text-sm text-slate-500 mb-4">
+              Describe what changes you would like to see. Our team will review and update your preview.
+            </p>
+            <textarea
+              value={revisionNotes}
+              onChange={(e) => setRevisionNotes(e.target.value)}
+              placeholder="e.g., I would like a different color scheme, or could you make the header larger?"
+              rows={4}
+              className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:border-lime-400 focus:ring-2 focus:ring-lime-100 outline-none transition-all resize-none mb-4"
+            />
+            {error && (
+              <p className="text-red-500 text-sm mb-4">{error}</p>
+            )}
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowRevisionModal(false)
+                  setRevisionNotes('')
+                  setError('')
+                }}
+                className="flex-1 px-4 py-2 border border-slate-200 text-slate-600 rounded-xl font-medium hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRequestRevision}
+                disabled={submitting}
+                className="flex-1 px-4 py-2 bg-slate-900 text-white rounded-xl font-medium hover:bg-slate-800 disabled:opacity-50"
+              >
+                {submitting ? 'Submitting...' : 'Submit Request'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -1023,27 +1036,17 @@ function FinalOnboardingSection({
     setUploading(true)
     setError('')
 
-    const supabase = createClient()
     const newUrls: string[] = []
 
     for (const file of filesToUpload) {
-      const ext = file.name.split('.').pop()
-      const path = `${client.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
-
-      const { error: uploadError } = await supabase.storage
-        .from('client-files')
-        .upload(path, file)
-
-      if (uploadError) {
+      try {
+        const formData = new FormData()
+        formData.append('file', file)
+        const { url } = await uploadClientFile(client.id, formData)
+        newUrls.push(url)
+      } catch {
         setError(`Failed to upload ${file.name}`)
-        continue
       }
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('client-files')
-        .getPublicUrl(path)
-
-      newUrls.push(publicUrl)
     }
 
     setUploadedImages(prev => [...prev, ...newUrls].slice(0, MAX_PHOTOS))
@@ -1082,37 +1085,15 @@ function FinalOnboardingSection({
     setSubmitting(true)
     setError('')
 
-    const supabase = createClient()
-
-    const { error: updateError } = await supabase
-      .from('clients')
-      .update({
-        final_content: formData,
-        final_images: uploadedImages,
-        updated_at: new Date().toISOString()
-      } as never)
-      .eq('id', client.id)
-
-    if (updateError) {
-      setError('Failed to save. Please try again.')
+    try {
+      await saveFinalContent(client.id, formData, uploadedImages)
+      alert('Content saved! We will notify you when your site is live.')
+      onUpdate()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to save. Please try again.')
+    } finally {
       setSubmitting(false)
-      return
     }
-
-    const { data: { user } } = await supabase.auth.getUser()
-
-    await supabase.from('state_transitions').insert({
-      client_id: client.id,
-      from_state: 'FINAL_ONBOARDING',
-      to_state: 'FINAL_ONBOARDING',
-      triggered_by: user?.id,
-      trigger_type: 'CLIENT',
-      metadata: { action: 'final_content_submitted' }
-    } as never)
-
-    setSubmitting(false)
-    alert('Content saved! We will notify you when your site is live.')
-    onUpdate()
   }
 
   return (
