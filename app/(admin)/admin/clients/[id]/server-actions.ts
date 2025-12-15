@@ -1,21 +1,8 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { verifyAdmin } from '@/lib/auth/admin'
 import type { ClientState } from '@/types/database'
-
-const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase())
-
-async function verifyAdmin() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-
-  if (!user || !ADMIN_EMAILS.includes(user.email?.toLowerCase() || '')) {
-    throw new Error('Unauthorized')
-  }
-
-  return user
-}
 
 export async function transitionClientState(
   clientId: string,
@@ -54,25 +41,48 @@ export async function transitionClientState(
 export async function updateClientUrls(
   clientId: string,
   previewUrl: string | null,
-  liveUrl: string | null
+  liveUrl: string | null,
+  currentState: ClientState
 ) {
-  await verifyAdmin()
+  const user = await verifyAdmin()
   const adminSupabase = createAdminClient()
+
+  // Auto-transition to LIVE when live_url is set and client is in FINAL_ONBOARDING
+  const shouldTransitionToLive = liveUrl && currentState === 'FINAL_ONBOARDING'
+
+  const updateData: Record<string, unknown> = {
+    preview_url: previewUrl || null,
+    live_url: liveUrl || null,
+    updated_at: new Date().toISOString()
+  }
+
+  if (shouldTransitionToLive) {
+    updateData.state = 'LIVE'
+    updateData.state_changed_at = new Date().toISOString()
+  }
 
   const { error } = await adminSupabase
     .from('clients')
-    .update({
-      preview_url: previewUrl || null,
-      live_url: liveUrl || null,
-      updated_at: new Date().toISOString()
-    } as never)
+    .update(updateData as never)
     .eq('id', clientId)
 
   if (error) {
     throw new Error('Failed to update URLs')
   }
 
-  return { success: true }
+  // Log state transition if it happened
+  if (shouldTransitionToLive) {
+    await adminSupabase.from('state_transitions').insert({
+      client_id: clientId,
+      from_state: 'FINAL_ONBOARDING',
+      to_state: 'LIVE',
+      triggered_by: user.id,
+      trigger_type: 'ADMIN',
+      metadata: { action: 'live_url_set' }
+    } as never)
+  }
+
+  return { success: true, transitioned: shouldTransitionToLive }
 }
 
 export async function saveClientNotes(
@@ -95,4 +105,86 @@ export async function saveClientNotes(
   }
 
   return { success: true }
+}
+
+export async function updatePreviewScreenshots(
+  clientId: string,
+  screenshots: string[],
+  currentState: ClientState
+) {
+  const user = await verifyAdmin()
+  const adminSupabase = createAdminClient()
+
+  // If uploading first mockup and client is in LOCKED state, transition to PREVIEW_READY
+  const shouldTransition = screenshots.length > 0 && currentState === 'LOCKED'
+
+  const updateData: Record<string, unknown> = {
+    preview_screenshots: screenshots,
+    updated_at: new Date().toISOString()
+  }
+
+  if (shouldTransition) {
+    updateData.state = 'PREVIEW_READY'
+    updateData.state_changed_at = new Date().toISOString()
+  }
+
+  const { error } = await adminSupabase
+    .from('clients')
+    .update(updateData as never)
+    .eq('id', clientId)
+
+  if (error) {
+    throw new Error('Failed to update screenshots')
+  }
+
+  // Log state transition if it happened
+  if (shouldTransition) {
+    await adminSupabase.from('state_transitions').insert({
+      client_id: clientId,
+      from_state: 'LOCKED',
+      to_state: 'PREVIEW_READY',
+      triggered_by: user.id,
+      trigger_type: 'ADMIN',
+      metadata: { action: 'mockup_uploaded' }
+    } as never)
+  }
+
+  return { success: true, transitioned: shouldTransition }
+}
+
+export async function uploadMockup(
+  clientId: string,
+  formData: FormData
+): Promise<{ url: string }> {
+  await verifyAdmin()
+  const adminSupabase = createAdminClient()
+
+  const file = formData.get('file') as File
+  if (!file) {
+    throw new Error('No file provided')
+  }
+
+  const fileExt = file.name.split('.').pop()
+  const fileName = `${clientId}/mockup-${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`
+
+  // Convert File to ArrayBuffer for server-side upload
+  const arrayBuffer = await file.arrayBuffer()
+  const buffer = Buffer.from(arrayBuffer)
+
+  const { error: uploadError } = await adminSupabase.storage
+    .from('client-files')
+    .upload(fileName, buffer, {
+      contentType: file.type,
+      upsert: false
+    })
+
+  if (uploadError) {
+    throw new Error(`Upload failed: ${uploadError.message}`)
+  }
+
+  const { data: urlData } = adminSupabase.storage
+    .from('client-files')
+    .getPublicUrl(fileName)
+
+  return { url: urlData.publicUrl }
 }

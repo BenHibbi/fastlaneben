@@ -1,25 +1,16 @@
 import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
+import { getAdminUser } from '@/lib/auth/admin'
 import Link from 'next/link'
-
-const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase())
 
 export default async function AdminLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getAdminUser()
 
   if (!user) {
     redirect('/login?next=/admin')
-  }
-
-  // Check if user is an admin
-  const isAdmin = ADMIN_EMAILS.includes(user.email?.toLowerCase() || '')
-  if (!isAdmin) {
-    redirect('/client')
   }
 
   return (

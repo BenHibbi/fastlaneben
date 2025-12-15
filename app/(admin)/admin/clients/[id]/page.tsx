@@ -1,8 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
-import { STATE_CONFIG, TRANSITIONS, getNextStates } from '@/lib/state-machine'
+import { STATE_CONFIG } from '@/lib/state-machine'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import type { ClientState, Client, StateTransition } from '@/types/database'
+import type { Client, StateTransition } from '@/types/database'
 import AdminClientActions from './actions'
 
 export default async function ClientDetailPage({
@@ -43,9 +43,6 @@ export default async function ClientDetailPage({
     .eq('client_id', id)
     .order('created_at', { ascending: false })
 
-  // Available transitions for admin
-  const availableTransitions = getNextStates(client.state, 'ADMIN')
-
   // Parse intake data
   const intakeData = client.intake_data as Record<string, unknown> | null
   const finalContent = client.final_content as Record<string, string> | null
@@ -62,6 +59,16 @@ export default async function ClientDetailPage({
           <p className="text-slate-500">{client.email}</p>
         </div>
         <div className="flex items-center gap-3">
+          <Link
+            href={`/admin/preview/${client.id}`}
+            className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+            </svg>
+            Preview as Client
+          </Link>
           <span className={`px-3 py-1.5 text-sm font-medium rounded-full ${
             client.state === 'LIVE' ? 'bg-green-100 text-green-700' :
             client.state === 'LOCKED' ? 'bg-amber-100 text-amber-700' :
@@ -89,11 +96,11 @@ export default async function ClientDetailPage({
           <AdminClientActions
             clientId={client.id}
             currentState={client.state}
-            availableTransitions={availableTransitions}
             revisionRequested={client.revision_requested}
             revisionNotes={client.revision_notes}
             previewUrl={client.preview_url}
             liveUrl={client.live_url}
+            previewScreenshots={(client.preview_screenshots || []) as string[]}
           />
 
           {/* Intake Data */}
@@ -106,7 +113,12 @@ export default async function ClientDetailPage({
               </div>
               <div>
                 <dt className="text-slate-500">Industry</dt>
-                <dd className="font-medium text-slate-900">{client.industry || '—'}</dd>
+                <dd className="font-medium text-slate-900">
+                  {client.industry || '—'}
+                  {client.industry === 'Other' && typeof intakeData?.industry_other === 'string' && (
+                    <span className="text-slate-600"> — {intakeData.industry_other}</span>
+                  )}
+                </dd>
               </div>
               <div>
                 <dt className="text-slate-500">Location</dt>
@@ -114,7 +126,12 @@ export default async function ClientDetailPage({
               </div>
               <div>
                 <dt className="text-slate-500">Goal</dt>
-                <dd className="font-medium text-slate-900">{intakeData?.goal as string || '—'}</dd>
+                <dd className="font-medium text-slate-900">
+                  {(intakeData?.goal as string) || '—'}
+                  {intakeData?.goal === 'Other' && typeof intakeData?.goal_other === 'string' && (
+                    <span className="text-slate-600"> — {intakeData.goal_other}</span>
+                  )}
+                </dd>
               </div>
               <div>
                 <dt className="text-slate-500">Style</dt>

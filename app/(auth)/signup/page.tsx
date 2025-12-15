@@ -4,7 +4,7 @@ import { useState, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
-function LoginForm() {
+function SignupForm() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const [email, setEmail] = useState('')
@@ -12,7 +12,7 @@ function LoginForm() {
   const [loading, setLoading] = useState(false)
   const [sent, setSent] = useState(false)
   const [error, setError] = useState('')
-  const [mode, setMode] = useState<'magic' | 'password'>('password') // Default to password for now
+  const [mode, setMode] = useState<'magic' | 'password'>('magic')
 
   const next = searchParams.get('next') ?? '/client'
 
@@ -46,26 +46,35 @@ function LoginForm() {
 
     const supabase = createClient()
 
-    // Try to sign in first
-    const { data, error: signInError } = await supabase.auth.signInWithPassword({
+    // Try to sign up first
+    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        emailRedirectTo: `${window.location.origin}/callback?next=${next}`,
+      },
     })
 
-    if (signInError) {
-      // For invalid credentials, give a helpful message
-      if (signInError.message.includes('Invalid login credentials')) {
-        setError('Invalid email or password. If you are a new user, click "Use magic link instead" to create your account.')
+    if (signUpError) {
+      // If user already exists, suggest login
+      if (signUpError.message.includes('already registered') || signUpError.message.includes('already exists')) {
+        setError('This email is already registered. Please log in instead.')
       } else {
-        setError(signInError.message)
+        setError(signUpError.message)
       }
       setLoading(false)
       return
     }
 
-    // Success - redirect
-    if (data?.session) {
-      console.log('SignIn success, session established')
+    // If email confirmation is required
+    if (signUpData.user && !signUpData.session) {
+      setSent(true)
+      setLoading(false)
+      return
+    }
+
+    // If auto-confirmed, redirect
+    if (signUpData.session) {
       router.refresh()
       router.push(next)
     }
@@ -85,7 +94,7 @@ function LoginForm() {
             We sent a {mode === 'magic' ? 'magic link' : 'confirmation email'} to <span className="font-medium text-slate-900">{email}</span>
           </p>
           <p className="text-sm text-slate-400">
-            Click the link in the email to {mode === 'magic' ? 'sign in' : 'confirm your account'}.
+            Click the link in the email to {mode === 'magic' ? 'sign in and start your build' : 'confirm your account'}.
           </p>
         </div>
       </div>
@@ -99,9 +108,9 @@ function LoginForm() {
           <a href="/" className="inline-block mb-6">
             <span className="font-serif-display font-bold italic text-3xl text-slate-900">Fastlane.</span>
           </a>
-          <h1 className="font-serif-display text-3xl text-slate-900 mb-2">Sign in to Fastlane</h1>
+          <h1 className="font-serif-display text-3xl text-slate-900 mb-2">Start your build</h1>
           <p className="text-slate-500">
-            {mode === 'password' ? 'Enter your credentials' : 'Enter your email to continue'}
+            Create your account to get started
           </p>
         </div>
 
@@ -124,24 +133,30 @@ function LoginForm() {
           {mode === 'password' && (
             <div>
               <label htmlFor="password" className="block text-sm font-medium text-slate-700 mb-1">
-                Password
+                Create a password
               </label>
               <input
                 id="password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Your password"
+                placeholder="Min 6 characters"
                 required
                 minLength={6}
                 className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-lime-400 focus:ring-2 focus:ring-lime-100 outline-none transition-all text-slate-900"
               />
-              <p className="text-xs text-slate-400 mt-1">Min 6 characters. New users will be registered automatically.</p>
             </div>
           )}
 
           {error && (
-            <p className="text-red-500 text-sm">{error}</p>
+            <div className="text-red-500 text-sm">
+              {error}
+              {error.includes('already registered') && (
+                <a href={`/login?next=${next}`} className="block mt-2 text-slate-900 font-medium hover:text-lime-600">
+                  Go to login &rarr;
+                </a>
+              )}
+            </div>
           )}
 
           <button
@@ -149,7 +164,7 @@ function LoginForm() {
             disabled={loading || !email || (mode === 'password' && !password)}
             className="w-full py-3 px-4 bg-[#C3F53C] text-slate-900 rounded-xl font-bold transition-all hover:bg-[#b4e62b] disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {loading ? 'Loading...' : mode === 'password' ? 'Sign In' : 'Send Magic Link'}
+            {loading ? 'Loading...' : mode === 'password' ? 'Create Account' : 'Continue with Email'}
           </button>
         </form>
 
@@ -164,9 +179,9 @@ function LoginForm() {
         </div>
 
         <p className="mt-8 text-center text-sm text-slate-400">
-          New to Fastlane?{' '}
-          <a href={`/signup?next=${next}`} className="text-slate-900 font-medium hover:text-lime-600 transition-colors">
-            Create an account
+          Already have an account?{' '}
+          <a href={`/login?next=${next}`} className="text-slate-900 font-medium hover:text-lime-600 transition-colors">
+            Log in
           </a>
         </p>
       </div>
@@ -174,14 +189,14 @@ function LoginForm() {
   )
 }
 
-export default function LoginPage() {
+export default function SignupPage() {
   return (
     <Suspense fallback={
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-white via-lime-50/30 to-white">
         <div className="w-8 h-8 border-2 border-lime-500 border-t-transparent rounded-full animate-spin"></div>
       </div>
     }>
-      <LoginForm />
+      <SignupForm />
     </Suspense>
   )
 }

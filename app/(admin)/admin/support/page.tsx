@@ -34,18 +34,16 @@ export default async function SupportPage({
     query = query.eq('status', params.status)
   }
 
-  const { data: requests } = await query
-
-  // Get counts by status
-  const { count: pendingCount } = await supabase
-    .from('support_requests')
-    .select('*', { count: 'exact', head: true })
-    .eq('status', 'pending')
-
-  const { count: inProgressCount } = await supabase
-    .from('support_requests')
-    .select('*', { count: 'exact', head: true })
-    .eq('status', 'in_progress')
+  // Run queries in parallel for better performance
+  const [
+    { data: requests },
+    { count: pendingCount },
+    { count: inProgressCount }
+  ] = await Promise.all([
+    query,
+    supabase.from('support_requests').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
+    supabase.from('support_requests').select('*', { count: 'exact', head: true }).eq('status', 'in_progress')
+  ])
 
   return (
     <div>

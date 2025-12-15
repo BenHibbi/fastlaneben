@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { Client, SupportRequest } from '@/types/database'
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 
 const REQUEST_TYPES = [
   { value: 'content_update', label: 'Content Update', description: 'Change text, images, or info' },
@@ -132,11 +133,7 @@ export default function SupportPage() {
   }
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[50vh]">
-        <div className="w-8 h-8 border-2 border-slate-200 border-t-slate-900 rounded-full animate-spin" />
-      </div>
-    )
+    return <LoadingSpinner />
   }
 
   if (!client) return null

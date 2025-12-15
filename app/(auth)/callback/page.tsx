@@ -1,47 +1,57 @@
 'use client'
 
-import { Suspense, useEffect } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
 function CallbackHandler() {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const [status, setStatus] = useState('Signing you in...')
   const next = searchParams.get('next') ?? '/client'
 
   useEffect(() => {
     const handleAuth = async () => {
       const supabase = createClient()
 
-      // Check if we have a code (PKCE flow)
-      const code = searchParams.get('code')
-      if (code) {
-        const { error } = await supabase.auth.exchangeCodeForSession(code)
-        if (!error) {
-          router.push(next)
-          return
-        }
+      // Check for error from Supabase (in URL params)
+      const error_param = searchParams.get('error')
+      const error_description = searchParams.get('error_description')
+
+      if (error_param) {
+        console.log('Supabase error:', error_param, error_description)
+        router.push(`/login?error=${error_param}`)
+        return
       }
 
-      // Check hash fragment (implicit flow from magic link)
-      const hash = window.location.hash
-      if (hash) {
-        // The hash contains the tokens - Supabase client will pick them up automatically
-        const { data: { session }, error } = await supabase.auth.getSession()
-        if (session && !error) {
-          router.push(next)
-          return
-        }
-      }
+      // With implicit flow, tokens are in the URL hash fragment
+      // The Supabase client with detectSessionInUrl: true will automatically pick them up
+      setStatus('Processing authentication...')
 
-      // If no code or hash, check if already authenticated
-      const { data: { session } } = await supabase.auth.getSession()
+      // Give Supabase a moment to process the hash fragment
+      await new Promise(resolve => setTimeout(resolve, 500))
+
+      // Check if session was established from hash fragment
+      const { data: { session }, error } = await supabase.auth.getSession()
+
+      console.log('Session check:', { hasSession: !!session, error: error?.message })
+
       if (session) {
+        setStatus('Success! Redirecting...')
+        router.push(next)
+        return
+      }
+
+      // If no session yet, try to get user (sometimes session is delayed)
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        setStatus('Success! Redirecting...')
         router.push(next)
         return
       }
 
       // Auth failed
+      console.log('No session found, redirecting to login')
       router.push('/login?error=auth_failed')
     }
 
@@ -52,7 +62,7 @@ function CallbackHandler() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-white via-lime-50/30 to-white">
       <div className="text-center">
         <div className="w-8 h-8 border-2 border-lime-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-        <p className="text-slate-600">Signing you in...</p>
+        <p className="text-slate-600">{status}</p>
       </div>
     </div>
   )
