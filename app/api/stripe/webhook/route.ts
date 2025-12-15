@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getStripe } from '@/lib/stripe'
+import { createAdminClient } from '@/lib/supabase/admin'
 import Stripe from 'stripe'
 
-// Disable body parsing, we need raw body for webhook verification
 export const runtime = 'nodejs'
 
 export async function POST(request: NextRequest) {
@@ -29,48 +29,128 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // Handle the event
+  const supabase = createAdminClient()
+
   switch (event.type) {
     case 'checkout.session.completed': {
       const session = event.data.object as Stripe.Checkout.Session
-      console.log('=== NEW SUBSCRIPTION ===')
-      console.log('Customer Email:', session.customer_email)
-      console.log('Business Name:', session.metadata?.businessName)
-      console.log('Subscription ID:', session.subscription)
-      console.log('Customer ID:', session.customer)
+      const clientId = session.metadata?.client_id
 
-      // TODO: Add to your database, send welcome email, etc.
-      // await createCustomerRecord(session)
-      // await sendWelcomeEmail(session.customer_email, session.metadata?.businessName)
+      console.log('=== CHECKOUT COMPLETED ===')
+      console.log('Client ID:', clientId)
+      console.log('Customer Email:', session.customer_email)
+      console.log('Subscription ID:', session.subscription)
+
+      if (clientId) {
+        // Get current client state
+        const { data } = await supabase
+          .from('clients')
+          .select('state')
+          .eq('id', clientId)
+          .single()
+
+        const client = data as { state: string } | null
+        if (client && client.state === 'ACTIVATION') {
+          // Update client with subscription info and transition to FINAL_ONBOARDING
+          const { error: updateError } = await supabase
+            .from('clients')
+            .update({
+              stripe_subscription_id: session.subscription as string,
+              subscription_status: 'active',
+              state: 'FINAL_ONBOARDING',
+              state_changed_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            } as never)
+            .eq('id', clientId)
+
+          if (!updateError) {
+            // Log state transition
+            await supabase.from('state_transitions').insert({
+              client_id: clientId,
+              from_state: 'ACTIVATION',
+              to_state: 'FINAL_ONBOARDING',
+              trigger_type: 'WEBHOOK',
+              metadata: {
+                action: 'payment_completed',
+                subscription_id: session.subscription,
+                checkout_session_id: session.id
+              }
+            } as never)
+          }
+        }
+      }
       break
     }
 
     case 'customer.subscription.created': {
       const subscription = event.data.object as Stripe.Subscription
+      const clientId = subscription.metadata?.client_id
+
       console.log('Subscription created:', subscription.id)
       console.log('Status:', subscription.status)
+
+      if (clientId) {
+        await supabase
+          .from('clients')
+          .update({
+            stripe_subscription_id: subscription.id,
+            subscription_status: subscription.status,
+            updated_at: new Date().toISOString()
+          } as never)
+          .eq('id', clientId)
+      }
       break
     }
 
     case 'customer.subscription.updated': {
       const subscription = event.data.object as Stripe.Subscription
+      const clientId = subscription.metadata?.client_id
+
       console.log('Subscription updated:', subscription.id)
       console.log('New status:', subscription.status)
 
-      // Handle status changes (active, past_due, canceled, etc.)
-      if (subscription.status === 'past_due') {
-        // TODO: Send payment failed email
-        console.log('Payment past due for subscription:', subscription.id)
+      if (clientId) {
+        await supabase
+          .from('clients')
+          .update({
+            subscription_status: subscription.status,
+            updated_at: new Date().toISOString()
+          } as never)
+          .eq('id', clientId)
+
+        if (subscription.status === 'past_due') {
+          console.log('Payment past due for client:', clientId)
+        }
       }
       break
     }
 
     case 'customer.subscription.deleted': {
       const subscription = event.data.object as Stripe.Subscription
+      const clientId = subscription.metadata?.client_id
+
       console.log('Subscription canceled:', subscription.id)
 
-      // TODO: Deactivate customer's website
-      // await deactivateWebsite(subscription.metadata?.businessName)
+      if (clientId) {
+        await supabase
+          .from('clients')
+          .update({
+            subscription_status: 'canceled',
+            updated_at: new Date().toISOString()
+          } as never)
+          .eq('id', clientId)
+
+        await supabase.from('state_transitions').insert({
+          client_id: clientId,
+          from_state: null,
+          to_state: 'SUPPORT',
+          trigger_type: 'WEBHOOK',
+          metadata: {
+            action: 'subscription_canceled',
+            subscription_id: subscription.id
+          }
+        } as never)
+      }
       break
     }
 
@@ -83,11 +163,29 @@ export async function POST(request: NextRequest) {
 
     case 'invoice.payment_failed': {
       const invoice = event.data.object as Stripe.Invoice
+      const subscriptionId = invoice.subscription as string
+
       console.log('Payment failed for invoice:', invoice.id)
       console.log('Customer:', invoice.customer_email)
 
-      // TODO: Send payment failed notification
-      // await sendPaymentFailedEmail(invoice.customer_email)
+      if (subscriptionId) {
+        const { data } = await supabase
+          .from('clients')
+          .select('id')
+          .eq('stripe_subscription_id', subscriptionId)
+          .single()
+
+        const client = data as { id: string } | null
+        if (client) {
+          await supabase
+            .from('clients')
+            .update({
+              subscription_status: 'past_due',
+              updated_at: new Date().toISOString()
+            } as never)
+            .eq('id', client.id)
+        }
+      }
       break
     }
 

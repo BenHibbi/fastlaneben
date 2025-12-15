@@ -115,9 +115,13 @@ export default function FastlaneHomepage() {
 
           {/* Desktop Menu */}
           <div className="hidden md:flex items-center gap-8">
-            {['How it Works', 'Pricing', 'Login'].map((item) => (
-              <a key={item} href={`#${item.toLowerCase().replace(/\s/g, '-')}`} className="text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors relative group">
-                {item}
+            {[
+              { label: 'How it Works', href: '#how-it-works' },
+              { label: 'Pricing', href: '#pricing' },
+              { label: 'Login', href: '/login' }
+            ].map((item) => (
+              <a key={item.label} href={item.href} className="text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors relative group">
+                {item.label}
                 <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-[#C3F53C] transition-all duration-300 group-hover:w-full opacity-0 group-hover:opacity-100"></span>
               </a>
             ))}
@@ -141,9 +145,9 @@ export default function FastlaneHomepage() {
       {isMenuOpen && (
         <div className="fixed inset-0 z-40 bg-white/95 backdrop-blur-xl pt-20 sm:pt-28 px-4 sm:px-6 md:hidden animate-blur-fade duration-300">
           <div className="flex flex-col gap-6 sm:gap-8 text-xl sm:text-2xl font-serif-display">
-            <a href="#" className="border-b border-slate-100 pb-4 text-slate-900">How it Works</a>
-            <a href="#" className="border-b border-slate-100 pb-4 text-slate-900">Pricing</a>
-            <a href="#" className="border-b border-slate-100 pb-4 text-slate-900">Login</a>
+            <a href="#how-it-works" className="border-b border-slate-100 pb-4 text-slate-900">How it Works</a>
+            <a href="#pricing" className="border-b border-slate-100 pb-4 text-slate-900">Pricing</a>
+            <a href="/login" className="border-b border-slate-100 pb-4 text-slate-900">Login</a>
             <button
               onClick={handleCheckout}
               disabled={isLoading}
@@ -181,12 +185,12 @@ export default function FastlaneHomepage() {
             {/* Headline */}
             <h1 className="animate-blur-fade delay-100 font-serif-display text-4xl sm:text-5xl lg:text-7xl leading-[1.1] font-medium text-slate-900 mb-4 sm:mb-6 tracking-tight">
               Your website. <br />
-              <span className="text-slate-400">Live in 7 days.</span>
+              <span className="text-slate-400">Live within 7 days.</span>
             </h1>
 
             {/* Subhead */}
             <p className="animate-blur-fade delay-200 font-sans-body text-base sm:text-lg text-slate-600 mb-8 sm:mb-10 max-w-lg leading-relaxed">
-              From $29/month. Hosting included. $0 upfront. <br className="hidden md:block"/>
+              From <span className="font-bold text-slate-900">$39/month</span>. Hosting included. $0 upfront. <br className="hidden md:block"/>
               The professional standard for local business.
             </p>
 
@@ -454,7 +458,7 @@ export default function FastlaneHomepage() {
             {[...Array(12)].map((_, i) => (
             <div key={i} className="whitespace-nowrap flex items-center gap-4 sm:gap-8 mx-2 sm:mx-4">
                 <span className="text-white/80 text-[10px] sm:text-xs font-bold font-sans-body tracking-wider sm:tracking-widest uppercase">
-                    $29 / month • Ready in 7 days • Hosting + SSL included • Add-ons & Edits Available
+                    $39 / month • Ready in 7 days • Hosting + SSL included • Add-ons & Edits Available
                 </span>
                 <span className="text-[#C3F53C]">•</span>
             </div>
@@ -536,8 +540,8 @@ export default function FastlaneHomepage() {
                   </h3>
                   <ul className="space-y-3 font-sans-body">
                       {[
-                          { text: "$0 upfront, $29/mo", icon: <Check size={12} /> },
-                          { text: "Live in 7 days", icon: <Zap size={12} /> },
+                          { text: "$0 upfront, $39/mo", icon: <Check size={12} /> },
+                          { text: "Live within 7 days", icon: <Zap size={12} /> },
                           { text: "Custom, not template", icon: <LayoutTemplate size={12} /> },
                           { text: "We handle everything", icon: <Hammer size={12} /> }
                       ].map((item, i) => (
@@ -684,13 +688,13 @@ export default function FastlaneHomepage() {
                                       <div className="text-slate-400 text-[10px] font-bold uppercase tracking-wider">{isAnnual ? 'Annual Plan' : 'Monthly Plan'}</div>
                                       <div className="text-slate-900 text-4xl font-serif-display font-medium mt-1.5 tracking-tight">
                                         {isAnnual ? (
-                                          <>$290<span className="text-sm text-slate-400 font-sans-body font-normal tracking-normal">/year</span></>
+                                          <>$390<span className="text-sm text-slate-400 font-sans-body font-normal tracking-normal">/year</span></>
                                         ) : (
-                                          <>$29<span className="text-sm text-slate-400 font-sans-body font-normal tracking-normal">/mo</span></>
+                                          <>$39<span className="text-sm text-slate-400 font-sans-body font-normal tracking-normal">/mo</span></>
                                         )}
                                       </div>
                                       <div className={`text-[10px] text-lime-600 font-medium mt-1 transition-all duration-300 ${isAnnual ? 'opacity-100 h-4' : 'opacity-0 h-0 overflow-hidden'}`}>
-                                        ~$24.17/mo • Save $58
+                                        ~$32.50/mo • Save $78
                                       </div>
                                   </div>
                                   <div className={`text-[9px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wide transition-all duration-300 ${isAnnual ? 'bg-[#C3F53C] text-slate-900 border border-lime-400' : 'bg-lime-50 text-lime-700 border border-lime-200'}`}>
@@ -752,7 +756,7 @@ export default function FastlaneHomepage() {
          <div className="max-w-7xl mx-auto px-4 sm:px-6 relative z-10">
             <ScrollReveal>
               <div className="text-center mb-10 md:mb-16">
-                <h2 className="font-serif-display text-2xl sm:text-3xl md:text-5xl text-slate-900 mb-4 md:mb-6">From idea to live in 7 days.</h2>
+                <h2 className="font-serif-display text-2xl sm:text-3xl md:text-5xl text-slate-900 mb-4 md:mb-6">From idea to live within 7 days.</h2>
               </div>
             </ScrollReveal>
 
@@ -760,7 +764,7 @@ export default function FastlaneHomepage() {
                {[
                  { step: "01", title: "Tell us about your business", desc: "2-minute form." },
                  { step: "02", title: "Get your draft", desc: "Custom mockup in your inbox within 48h." },
-                 { step: "03", title: "Fine-tune", desc: "We adjust it until it feels right." },
+                 { step: "03", title: "Fine-tune", desc: "We adjust it until it feels right. → (2 rounds)" },
                  { step: "04", title: "Go live", desc: "Your site launches. Customers see you." }
                ].map((item, i) => (
                  <ScrollReveal key={i} delay={i * 100}>
@@ -956,10 +960,10 @@ export default function FastlaneHomepage() {
                   disabled={isLoading}
                   className="px-8 sm:px-12 py-4 sm:py-5 bg-[#C3F53C] text-slate-900 rounded-xl sm:rounded-2xl text-base sm:text-lg font-bold transition-all hover:bg-[#b4e62b] hover:shadow-xl hover:shadow-lime-300/20 hover:-translate-y-1 active:scale-95 flex items-center gap-2 disabled:opacity-50"
                 >
-                    {isLoading ? 'Loading...' : 'Get live in 7 days'} <ArrowRight size={20} />
+                    {isLoading ? 'Loading...' : 'Get live within 7 days'} <ArrowRight size={20} />
                 </button>
                 <div className="text-xs sm:text-sm font-medium text-white">
-                    From $29/month. <span className="text-slate-500">Hosting included.</span>
+                    From $39/month. <span className="text-slate-500">Hosting included.</span>
                 </div>
               </div>
             </ScrollReveal>
@@ -990,7 +994,7 @@ export default function FastlaneHomepage() {
                             <a href="#" className="hover:underline decoration-2 underline-offset-4">Showcase</a>
                         </div>
                         <div className="flex flex-col gap-3 sm:gap-4">
-                            <a href="#" className="hover:underline decoration-2 underline-offset-4">Login</a>
+                            <a href="/login" className="hover:underline decoration-2 underline-offset-4">Login</a>
                             <a href="#" className="hover:underline decoration-2 underline-offset-4">Support</a>
                             <a href="#" className="hover:underline decoration-2 underline-offset-4">Terms</a>
                         </div>

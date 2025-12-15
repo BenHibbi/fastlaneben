@@ -1,15 +1,41 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getStripe, PRICES, Currency } from '@/lib/stripe'
+import { createAdminClient } from '@/lib/supabase/admin'
+import type { Client } from '@/types/database'
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { businessName, email, currency = 'USD' } = body
+    const { clientId, currency = 'USD' } = body
 
-    // Validate required fields
-    if (!businessName || !email) {
+    if (!clientId) {
       return NextResponse.json(
-        { error: 'Business name and email are required' },
+        { error: 'Client ID is required' },
+        { status: 400 }
+      )
+    }
+
+    // Get client from database
+    const supabase = createAdminClient()
+    const { data, error: clientError } = await supabase
+      .from('clients')
+      .select('*')
+      .eq('id', clientId)
+      .single()
+
+    if (clientError || !data) {
+      return NextResponse.json(
+        { error: 'Client not found' },
+        { status: 404 }
+      )
+    }
+
+    const client = data as Client
+
+    // Verify client is in ACTIVATION state
+    if (client.state !== 'ACTIVATION') {
+      return NextResponse.json(
+        { error: 'Client is not in activation state' },
         { status: 400 }
       )
     }
@@ -17,11 +43,34 @@ export async function POST(request: NextRequest) {
     // Get the correct price ID for the currency
     const priceId = PRICES[currency as Currency] || PRICES.USD
 
+    // Create or get Stripe customer
+    let customerId = client.stripe_customer_id
+
+    if (!customerId) {
+      const customer = await getStripe().customers.create({
+        email: client.email,
+        name: client.business_name || undefined,
+        metadata: {
+          client_id: client.id,
+          business_name: client.business_name || '',
+        },
+      })
+      customerId = customer.id
+
+      // Save customer ID to database
+      await supabase
+        .from('clients')
+        .update({ stripe_customer_id: customerId } as never)
+        .eq('id', client.id)
+    }
+
     // Create Stripe checkout session
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'
+
     const session = await getStripe().checkout.sessions.create({
+      customer: customerId,
       payment_method_types: ['card'],
       mode: 'subscription',
-      customer_email: email,
       line_items: [
         {
           price: priceId,
@@ -29,24 +78,21 @@ export async function POST(request: NextRequest) {
         },
       ],
       metadata: {
-        businessName,
-        email,
-        currency,
+        client_id: client.id,
+        business_name: client.business_name || '',
       },
       subscription_data: {
         metadata: {
-          businessName,
+          client_id: client.id,
+          business_name: client.business_name || '',
         },
       },
-      success_url: `${process.env.NEXT_PUBLIC_BASE_URL || 'https://crushhh.co'}/webdesign/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL || 'https://crushhh.co'}/webdesign`,
-      // Automatic tax calculation (requires Stripe Tax to be enabled)
+      success_url: `${baseUrl}/client/final?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${baseUrl}/client/activate`,
       automatic_tax: {
         enabled: true,
       },
-      // Collect billing address for tax purposes
       billing_address_collection: 'required',
-      // Allow promotion codes
       allow_promotion_codes: true,
     })
 
