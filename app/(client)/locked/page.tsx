@@ -1,25 +1,27 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { STATE_CONFIG, getStateRoute } from '@/lib/state-machine'
-import type { ClientState } from '@/types/database'
+import type { ClientState, Client } from '@/types/database'
 
 export default async function LockedPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  if (!user) {
+  if (!user || !user.email) {
     redirect('/login')
   }
 
-  const { data: client } = await supabase
+  const { data } = await supabase
     .from('clients')
     .select('*')
     .eq('email', user.email)
     .single()
 
-  if (!client) {
+  if (!data) {
     redirect('/client/intake')
   }
+
+  const client = data as unknown as Client
 
   // Redirect if not in correct state
   if (client.state !== 'LOCKED') {

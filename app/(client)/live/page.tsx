@@ -8,7 +8,7 @@ export default async function LivePage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  if (!user) {
+  if (!user || !user.email) {
     redirect('/login')
   }
 
@@ -22,8 +22,10 @@ export default async function LivePage() {
     redirect('/client/intake')
   }
 
-  if (client.state !== 'LIVE') {
-    redirect(getStateRoute(client.state as ClientState))
+  const clientData = client as { state: string; live_url: string | null; business_name: string | null; state_changed_at: string }
+
+  if (clientData.state !== 'LIVE') {
+    redirect(getStateRoute(clientData.state as ClientState))
   }
 
   return (
@@ -48,20 +50,20 @@ export default async function LivePage() {
       </p>
 
       {/* Live URL */}
-      {client.live_url && (
+      {clientData.live_url && (
         <div className="bg-slate-50 rounded-2xl p-6 mb-8">
           <p className="text-sm text-slate-500 mb-2">Your website</p>
           <a
-            href={client.live_url}
+            href={clientData.live_url}
             target="_blank"
             rel="noopener noreferrer"
             className="text-xl font-medium text-slate-900 hover:text-[#C3F53C] transition-colors break-all"
           >
-            {client.live_url.replace(/^https?:\/\//, '')}
+            {clientData.live_url.replace(/^https?:\/\//, '')}
           </a>
           <div className="mt-4 flex justify-center gap-3">
             <a
-              href={client.live_url}
+              href={clientData.live_url}
               target="_blank"
               rel="noopener noreferrer"
               className="px-6 py-2 bg-slate-900 text-white rounded-lg font-medium hover:bg-slate-800 transition-colors"
@@ -69,7 +71,6 @@ export default async function LivePage() {
               Visit Site →
             </a>
             <button
-              onClick={() => navigator.clipboard.writeText(client.live_url!)}
               className="px-6 py-2 border border-slate-200 text-slate-600 rounded-lg font-medium hover:bg-slate-50 transition-colors"
             >
               Copy Link
@@ -110,8 +111,8 @@ export default async function LivePage() {
 
       {/* Site info */}
       <div className="mt-8 text-sm text-slate-400">
-        <p>Site for {client.business_name}</p>
-        <p>Live since {new Date(client.state_changed_at).toLocaleDateString('en-US', {
+        <p>Site for {clientData.business_name}</p>
+        <p>Live since {new Date(clientData.state_changed_at).toLocaleDateString('en-US', {
           month: 'long',
           day: 'numeric',
           year: 'numeric'

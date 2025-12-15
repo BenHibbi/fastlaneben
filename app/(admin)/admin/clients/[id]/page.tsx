@@ -124,7 +124,7 @@ export default async function ClientDetailPage({
                 <dt className="text-slate-500 mb-1">Description</dt>
                 <dd className="text-slate-700">{intakeData?.description as string || '—'}</dd>
               </div>
-              {intakeData?.competitors && (
+              {Array.isArray(intakeData?.competitors) && intakeData.competitors.length > 0 && (
                 <div className="col-span-2">
                   <dt className="text-slate-500 mb-1">Reference Sites</dt>
                   <dd className="text-slate-700">

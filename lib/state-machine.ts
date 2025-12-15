@@ -131,11 +131,13 @@ export async function transitionClient(
     return { success: false, error: 'Client not found' }
   }
 
+  const typedClient = client as unknown as Client
+
   // Validate transition
-  if (!canTransition(client.state, toState, triggeredBy)) {
+  if (!canTransition(typedClient.state, toState, triggeredBy)) {
     return {
       success: false,
-      error: `Invalid transition from ${client.state} to ${toState} by ${triggeredBy}`
+      error: `Invalid transition from ${typedClient.state} to ${toState} by ${triggeredBy}`
     }
   }
 
@@ -146,7 +148,7 @@ export async function transitionClient(
       state: toState,
       state_changed_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
-    })
+    } as never)
     .eq('id', clientId)
 
   if (updateError) {
@@ -156,12 +158,12 @@ export async function transitionClient(
   // Log transition
   await supabase.from('state_transitions').insert({
     client_id: clientId,
-    from_state: client.state,
+    from_state: typedClient.state,
     to_state: toState,
     triggered_by: userId || null,
     trigger_type: triggeredBy,
     metadata: metadata || {}
-  })
+  } as never)
 
   return { success: true, newState: toState }
 }

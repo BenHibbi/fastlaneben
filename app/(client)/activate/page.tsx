@@ -22,7 +22,7 @@ export default function ActivatePage() {
     const supabase = createClient()
     const { data: { user } } = await supabase.auth.getUser()
 
-    if (!user) {
+    if (!user || !user.email) {
       router.push('/login')
       return
     }
@@ -38,16 +38,18 @@ export default function ActivatePage() {
       return
     }
 
-    if (data.state !== 'ACTIVATION') {
+    const clientData = data as unknown as Client
+
+    if (clientData.state !== 'ACTIVATION') {
       router.push('/client')
       return
     }
 
     // Pre-fill if already accepted
-    if (data.terms_accepted_at) setTermsAccepted(true)
-    if (data.privacy_accepted_at) setPrivacyAccepted(true)
+    if (clientData.terms_accepted_at) setTermsAccepted(true)
+    if (clientData.privacy_accepted_at) setPrivacyAccepted(true)
 
-    setClient(data)
+    setClient(clientData)
     setLoading(false)
   }
 
@@ -65,7 +67,7 @@ export default function ActivatePage() {
         terms_accepted_at: new Date().toISOString(),
         privacy_accepted_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
-      })
+      } as never)
       .eq('id', client.id)
 
     if (updateError) {

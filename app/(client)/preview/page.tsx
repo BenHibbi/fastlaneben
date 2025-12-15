@@ -22,7 +22,7 @@ export default function PreviewPage() {
     const supabase = createClient()
     const { data: { user } } = await supabase.auth.getUser()
 
-    if (!user) {
+    if (!user || !user.email) {
       router.push('/login')
       return
     }
@@ -38,12 +38,14 @@ export default function PreviewPage() {
       return
     }
 
-    if (data.state !== 'PREVIEW_READY') {
+    const clientData = data as unknown as Client
+
+    if (clientData.state !== 'PREVIEW_READY') {
       router.push('/client')
       return
     }
 
-    setClient(data)
+    setClient(clientData)
     setLoading(false)
   }
 
@@ -62,7 +64,7 @@ export default function PreviewPage() {
         state: 'ACTIVATION',
         state_changed_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
-      })
+      } as never)
       .eq('id', client.id)
 
     if (updateError) {
@@ -79,7 +81,7 @@ export default function PreviewPage() {
       triggered_by: user?.id,
       trigger_type: 'CLIENT',
       metadata: { action: 'preview_approved' }
-    })
+    } as never)
 
     router.push('/client/activate')
   }
@@ -108,7 +110,7 @@ export default function PreviewPage() {
         revision_notes: revisionNotes,
         revisions_remaining: client.revisions_remaining - 1,
         updated_at: new Date().toISOString()
-      })
+      } as never)
       .eq('id', client.id)
 
     if (updateError) {
@@ -125,7 +127,7 @@ export default function PreviewPage() {
       triggered_by: user?.id,
       trigger_type: 'CLIENT',
       metadata: { action: 'revision_requested', notes: revisionNotes }
-    })
+    } as never)
 
     router.push('/client/locked')
   }

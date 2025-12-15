@@ -99,7 +99,7 @@ export default async function SupportPage({
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-1">
                         <span className="font-medium text-slate-900">
-                          {REQUEST_TYPES[request.request_type as string] || request.request_type}
+                          {REQUEST_TYPES[request.request_type as string] || (request.request_type as string)}
                         </span>
                         <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${
                           request.status === 'pending' ? 'bg-amber-100 text-amber-700' :

@@ -33,7 +33,7 @@ export default function FinalPage() {
     const supabase = createClient()
     const { data: { user } } = await supabase.auth.getUser()
 
-    if (!user) {
+    if (!user || !user.email) {
       router.push('/login')
       return
     }
@@ -49,14 +49,16 @@ export default function FinalPage() {
       return
     }
 
-    if (data.state !== 'FINAL_ONBOARDING') {
+    const clientData = data as unknown as Client
+
+    if (clientData.state !== 'FINAL_ONBOARDING') {
       router.push('/client')
       return
     }
 
     // Pre-fill if they have previous final content
-    if (data.final_content && typeof data.final_content === 'object') {
-      const content = data.final_content as Record<string, string>
+    if (clientData.final_content && typeof clientData.final_content === 'object') {
+      const content = clientData.final_content as Record<string, string>
       setFormData({
         tagline: content.tagline || '',
         about: content.about || '',
@@ -67,11 +69,11 @@ export default function FinalPage() {
       })
     }
 
-    if (data.final_images && Array.isArray(data.final_images)) {
-      setUploadedImages(data.final_images as string[])
+    if (clientData.final_images && Array.isArray(clientData.final_images)) {
+      setUploadedImages(clientData.final_images as string[])
     }
 
-    setClient(data)
+    setClient(clientData)
     setLoading(false)
   }
 
@@ -135,7 +137,7 @@ export default function FinalPage() {
         final_content: formData,
         final_images: uploadedImages,
         updated_at: new Date().toISOString()
-      })
+      } as never)
       .eq('id', client.id)
 
     if (updateError) {
@@ -151,7 +153,7 @@ export default function FinalPage() {
       to_state: 'FINAL_ONBOARDING',
       trigger_type: 'CLIENT',
       metadata: { action: 'final_content_submitted' }
-    })
+    } as never)
 
     setSubmitting(false)
     // Show success state - stay on page

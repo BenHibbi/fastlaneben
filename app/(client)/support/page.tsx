@@ -36,7 +36,7 @@ export default function SupportPage() {
     const supabase = createClient()
     const { data: { user } } = await supabase.auth.getUser()
 
-    if (!user) {
+    if (!user || !user.email) {
       router.push('/login')
       return
     }
@@ -52,22 +52,24 @@ export default function SupportPage() {
       return
     }
 
+    const typedClientData = clientData as unknown as Client
+
     // Allow access if LIVE or SUPPORT state
-    if (clientData.state !== 'LIVE' && clientData.state !== 'SUPPORT') {
+    if (typedClientData.state !== 'LIVE' && typedClientData.state !== 'SUPPORT') {
       router.push('/client')
       return
     }
 
-    setClient(clientData)
+    setClient(typedClientData)
 
     // Load support requests
     const { data: requestsData } = await supabase
       .from('support_requests')
       .select('*')
-      .eq('client_id', clientData.id)
+      .eq('client_id', typedClientData.id)
       .order('created_at', { ascending: false })
 
-    setRequests(requestsData || [])
+    setRequests((requestsData || []) as SupportRequest[])
     setLoading(false)
   }
 
@@ -88,7 +90,7 @@ export default function SupportPage() {
         description: formData.description,
         attachments: [],
         status: 'pending'
-      })
+      } as never)
 
     if (insertError) {
       setError('Failed to submit request. Please try again.')
@@ -104,7 +106,7 @@ export default function SupportPage() {
           state: 'SUPPORT',
           state_changed_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
-        })
+        } as never)
         .eq('id', client.id)
 
       await supabase.from('state_transitions').insert({
@@ -114,7 +116,7 @@ export default function SupportPage() {
         triggered_by: user?.id,
         trigger_type: 'CLIENT',
         metadata: { action: 'support_request_created' }
-      })
+      } as never)
     }
 
     setFormData({ request_type: '', description: '' })

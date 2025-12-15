@@ -8,7 +8,7 @@ export default async function ClientDashboard() {
 
   const { data: { user } } = await supabase.auth.getUser()
 
-  if (!user) {
+  if (!user || !user.email) {
     redirect('/login')
   }
 
@@ -24,7 +24,9 @@ export default async function ClientDashboard() {
     redirect('/client/intake')
   }
 
+  const clientData = client as { state: string }
+
   // Redirect to current state page
-  const route = getStateRoute(client.state as ClientState)
+  const route = getStateRoute(clientData.state as ClientState)
   redirect(route)
 }

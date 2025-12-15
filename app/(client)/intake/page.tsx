@@ -60,7 +60,7 @@ export default function IntakePage() {
     const supabase = createClient()
     const { data: { user } } = await supabase.auth.getUser()
 
-    if (!user) {
+    if (!user || !user.email) {
       setError('Please sign in to continue')
       setLoading(false)
       return
@@ -92,8 +92,8 @@ export default function IntakePage() {
           state: 'LOCKED',
           state_changed_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
-        })
-        .eq('id', existingClient.id)
+        } as never)
+        .eq('id', (existingClient as { id: string }).id)
 
       if (updateError) {
         setError('Failed to submit. Please try again.')
@@ -102,27 +102,28 @@ export default function IntakePage() {
       }
 
       // Log state transition
+      const existingClientData = existingClient as { id: string; state: string }
       await supabase.from('state_transitions').insert({
-        client_id: existingClient.id,
-        from_state: existingClient.state,
+        client_id: existingClientData.id,
+        from_state: existingClientData.state,
         to_state: 'LOCKED',
         triggered_by: user.id,
         trigger_type: 'CLIENT',
         metadata: { action: 'intake_submitted' }
-      })
+      } as never)
     } else {
       // Create new client
       const { data: newClient, error: insertError } = await supabase
         .from('clients')
         .insert({
           user_id: user.id,
-          email: user.email!,
+          email: user.email,
           business_name: formData.business_name,
           industry: formData.industry,
           location: formData.location,
           intake_data: intakeData,
           state: 'LOCKED'
-        })
+        } as never)
         .select()
         .single()
 
@@ -133,14 +134,15 @@ export default function IntakePage() {
       }
 
       // Log initial state
+      const newClientData = newClient as { id: string }
       await supabase.from('state_transitions').insert({
-        client_id: newClient.id,
+        client_id: newClientData.id,
         from_state: null,
         to_state: 'LOCKED',
         triggered_by: user.id,
         trigger_type: 'CLIENT',
         metadata: { action: 'intake_submitted' }
-      })
+      } as never)
     }
 
     router.push('/client/locked')
