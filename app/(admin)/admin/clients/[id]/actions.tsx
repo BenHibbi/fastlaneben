@@ -1,10 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
 import { STATE_CONFIG } from '@/lib/state-machine'
 import type { ClientState } from '@/types/database'
+import { transitionClientState, updateClientUrls, saveClientNotes } from './server-actions'
 
 interface Props {
   clientId: string
@@ -26,77 +26,60 @@ export default function AdminClientActions({
   liveUrl,
 }: Props) {
   const router = useRouter()
-  const [loading, setLoading] = useState(false)
+  const [isPending, startTransition] = useTransition()
   const [newPreviewUrl, setNewPreviewUrl] = useState(previewUrl || '')
   const [newLiveUrl, setNewLiveUrl] = useState(liveUrl || '')
   const [internalNotes, setInternalNotes] = useState('')
+  const [error, setError] = useState<string | null>(null)
 
   const handleTransition = async (toState: ClientState) => {
     if (!confirm(`Transition client to ${STATE_CONFIG[toState].label}?`)) return
 
-    setLoading(true)
-    const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-
-    await supabase
-      .from('clients')
-      .update({
-        state: toState,
-        state_changed_at: new Date().toISOString(),
-        revision_requested: false, // Clear revision flag on any transition
-        updated_at: new Date().toISOString()
-      } as never)
-      .eq('id', clientId)
-
-    await supabase.from('state_transitions').insert({
-      client_id: clientId,
-      from_state: currentState,
-      to_state: toState,
-      triggered_by: user?.id,
-      trigger_type: 'ADMIN',
-      metadata: { action: 'manual_transition' }
-    } as never)
-
-    setLoading(false)
-    router.refresh()
+    setError(null)
+    startTransition(async () => {
+      try {
+        await transitionClientState(clientId, currentState, toState)
+        router.refresh()
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Failed to transition')
+      }
+    })
   }
 
   const handleUpdateUrls = async () => {
-    setLoading(true)
-    const supabase = createClient()
-
-    await supabase
-      .from('clients')
-      .update({
-        preview_url: newPreviewUrl || null,
-        live_url: newLiveUrl || null,
-        updated_at: new Date().toISOString()
-      } as never)
-      .eq('id', clientId)
-
-    setLoading(false)
-    router.refresh()
+    setError(null)
+    startTransition(async () => {
+      try {
+        await updateClientUrls(clientId, newPreviewUrl || null, newLiveUrl || null)
+        router.refresh()
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Failed to update URLs')
+      }
+    })
   }
 
   const handleSaveNotes = async () => {
-    setLoading(true)
-    const supabase = createClient()
-
-    await supabase
-      .from('clients')
-      .update({
-        internal_notes: internalNotes,
-        updated_at: new Date().toISOString()
-      } as never)
-      .eq('id', clientId)
-
-    setLoading(false)
-    alert('Notes saved!')
+    setError(null)
+    startTransition(async () => {
+      try {
+        await saveClientNotes(clientId, internalNotes)
+        alert('Notes saved!')
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Failed to save notes')
+      }
+    })
   }
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
       <h2 className="font-medium text-slate-900 mb-4">Admin Actions</h2>
+
+      {/* Error display */}
+      {error && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
       {/* Revision notice */}
       {revisionRequested && (
@@ -116,7 +99,7 @@ export default function AdminClientActions({
             <button
               key={state}
               onClick={() => handleTransition(state)}
-              disabled={loading}
+              disabled={isPending}
               className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 disabled:opacity-50 transition-colors"
             >
               → {STATE_CONFIG[state].label}
@@ -156,10 +139,10 @@ export default function AdminClientActions({
         </div>
         <button
           onClick={handleUpdateUrls}
-          disabled={loading}
+          disabled={isPending}
           className="px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800 disabled:opacity-50 transition-colors"
         >
-          {loading ? 'Saving...' : 'Update URLs'}
+          {isPending ? 'Saving...' : 'Update URLs'}
         </button>
       </div>
 
@@ -177,7 +160,7 @@ export default function AdminClientActions({
         />
         <button
           onClick={handleSaveNotes}
-          disabled={loading}
+          disabled={isPending}
           className="mt-2 px-4 py-2 border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 disabled:opacity-50 transition-colors"
         >
           Save Notes

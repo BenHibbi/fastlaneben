@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase())
 
@@ -21,14 +22,15 @@ export async function POST(
   const status = formData.get('status') as string
   const adminNotes = formData.get('admin_notes') as string | null
 
-  // Update support request
+  // Update support request using service-role client (bypasses RLS)
+  const adminSupabase = createAdminClient()
   const updateData: Record<string, unknown> = {
     status,
-    ...(adminNotes && { admin_notes: adminNotes }),
+    ...(adminNotes !== null && { admin_notes: adminNotes }),
     ...(status === 'resolved' && { resolved_at: new Date().toISOString() }),
   }
 
-  await supabase
+  await adminSupabase
     .from('support_requests')
     .update(updateData as never)
     .eq('id', id)

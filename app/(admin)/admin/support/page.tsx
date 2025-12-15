@@ -154,22 +154,31 @@ function SupportActions({
   adminNotes: string | null
 }) {
   return (
-    <form action={`/api/admin/support/${requestId}`} method="post" className="flex items-center gap-2">
-      <select
-        name="status"
-        defaultValue={currentStatus}
-        className="px-2 py-1 border border-slate-200 rounded text-sm"
-      >
-        <option value="pending">Pending</option>
-        <option value="in_progress">In Progress</option>
-        <option value="resolved">Resolved</option>
-      </select>
-      <button
-        type="submit"
-        className="px-3 py-1 bg-slate-900 text-white rounded text-sm font-medium hover:bg-slate-800"
-      >
-        Update
-      </button>
+    <form action={`/api/admin/support/${requestId}`} method="post" className="space-y-2">
+      <div className="flex items-center gap-2">
+        <select
+          name="status"
+          defaultValue={currentStatus}
+          className="px-2 py-1 border border-slate-200 rounded text-sm"
+        >
+          <option value="pending">Pending</option>
+          <option value="in_progress">In Progress</option>
+          <option value="resolved">Resolved</option>
+        </select>
+        <button
+          type="submit"
+          className="px-3 py-1 bg-slate-900 text-white rounded text-sm font-medium hover:bg-slate-800"
+        >
+          Update
+        </button>
+      </div>
+      <textarea
+        name="admin_notes"
+        defaultValue={adminNotes || ''}
+        placeholder="Admin notes (visible to client)..."
+        rows={2}
+        className="w-full px-2 py-1 border border-slate-200 rounded text-sm resize-none"
+      />
     </form>
   )
 }
