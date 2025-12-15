@@ -1,5 +1,7 @@
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { getAdminUser } from '@/lib/auth/admin'
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
 
 const REQUEST_TYPES: Record<string, string> = {
   content_update: 'Content Update',
@@ -14,8 +16,14 @@ export default async function SupportPage({
 }: {
   searchParams: Promise<{ status?: string }>
 }) {
+  // Verify admin access
+  const adminUser = await getAdminUser()
+  if (!adminUser) {
+    redirect('/login?next=/admin')
+  }
+
   const params = await searchParams
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   // Build query
   let query = supabase

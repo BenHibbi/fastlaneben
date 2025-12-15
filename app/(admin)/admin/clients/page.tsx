@@ -1,6 +1,8 @@
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { getAdminUser } from '@/lib/auth/admin'
 import { STATE_CONFIG } from '@/lib/state-machine'
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
 import type { ClientState, Client } from '@/types/database'
 
 export default async function ClientsPage({
@@ -8,8 +10,14 @@ export default async function ClientsPage({
 }: {
   searchParams: Promise<{ state?: string; search?: string }>
 }) {
+  // Verify admin access
+  const adminUser = await getAdminUser()
+  if (!adminUser) {
+    redirect('/login?next=/admin')
+  }
+
   const params = await searchParams
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   // Build query
   let query = supabase

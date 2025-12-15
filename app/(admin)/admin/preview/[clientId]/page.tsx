@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
 import { getAdminUser } from '@/lib/auth/admin'
@@ -18,7 +18,7 @@ export default async function AdminPreviewPage({
     redirect('/login?next=/admin')
   }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   // Get client data
   const { data, error } = await supabase

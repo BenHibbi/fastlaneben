@@ -1,6 +1,7 @@
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { getAdminUser } from '@/lib/auth/admin'
 import { STATE_CONFIG } from '@/lib/state-machine'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
 import type { Client, StateTransition } from '@/types/database'
 import AdminClientActions from './actions'
@@ -10,8 +11,14 @@ export default async function ClientDetailPage({
 }: {
   params: Promise<{ id: string }>
 }) {
+  // Verify admin access
+  const adminUser = await getAdminUser()
+  if (!adminUser) {
+    redirect('/login?next=/admin')
+  }
+
   const { id } = await params
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   // Get client
   const { data, error } = await supabase
@@ -46,6 +53,10 @@ export default async function ClientDetailPage({
   // Parse intake data
   const intakeData = client.intake_data as Record<string, unknown> | null
   const finalContent = client.final_content as Record<string, string> | null
+  const finalImages = (client.final_images || []) as string[]
+
+  // Check if client is in final onboarding phase or later
+  const showFinalContent = ['FINAL_ONBOARDING', 'LIVE'].includes(client.state)
 
   return (
     <div>
@@ -156,42 +167,108 @@ export default async function ClientDetailPage({
             </dl>
           </div>
 
-          {/* Final Content (if submitted) */}
-          {finalContent && Object.keys(finalContent).length > 0 && (
+          {/* Final Content - shown for FINAL_ONBOARDING and LIVE states */}
+          {showFinalContent && (
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-              <h2 className="font-medium text-slate-900 mb-4">Final Content</h2>
-              <dl className="space-y-4 text-sm">
-                {finalContent.tagline && (
-                  <div>
-                    <dt className="text-slate-500">Tagline</dt>
-                    <dd className="font-medium text-slate-900">{finalContent.tagline}</dd>
-                  </div>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="font-medium text-slate-900">Client Content</h2>
+                {(!finalContent || Object.keys(finalContent).length === 0) && (
+                  <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded">
+                    Waiting for client to submit
+                  </span>
                 )}
-                {finalContent.about && (
+              </div>
+
+              {finalContent && Object.keys(finalContent).length > 0 ? (
+                <dl className="space-y-4 text-sm">
+                  {/* Tagline */}
+                  <div>
+                    <dt className="text-slate-500">Tagline / Headline</dt>
+                    <dd className="font-medium text-slate-900">{finalContent.tagline || '—'}</dd>
+                  </div>
+
+                  {/* About */}
                   <div>
                     <dt className="text-slate-500 mb-1">About</dt>
-                    <dd className="text-slate-700 whitespace-pre-wrap">{finalContent.about}</dd>
+                    <dd className="text-slate-700 whitespace-pre-wrap bg-slate-50 p-3 rounded-lg">{finalContent.about || '—'}</dd>
                   </div>
-                )}
-                {finalContent.services && (
+
+                  {/* Detailed description (internal) */}
+                  {finalContent.detailed_description && (
+                    <div>
+                      <dt className="text-slate-500 mb-1">
+                        Detailed Description
+                        <span className="ml-2 text-xs text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded">Internal</span>
+                      </dt>
+                      <dd className="text-slate-700 whitespace-pre-wrap bg-purple-50 p-3 rounded-lg border border-purple-100">{finalContent.detailed_description}</dd>
+                    </div>
+                  )}
+
+                  {/* Services */}
                   <div>
-                    <dt className="text-slate-500 mb-1">Services</dt>
-                    <dd className="text-slate-700 whitespace-pre-wrap">{finalContent.services}</dd>
+                    <dt className="text-slate-500 mb-1">Services / Products</dt>
+                    <dd className="text-slate-700 whitespace-pre-wrap bg-slate-50 p-3 rounded-lg">{finalContent.services || '—'}</dd>
                   </div>
-                )}
-                {finalContent.contact_email && (
-                  <div>
-                    <dt className="text-slate-500">Contact Email</dt>
-                    <dd className="font-medium text-slate-900">{finalContent.contact_email}</dd>
+
+                  {/* Call to Action */}
+                  {finalContent.call_to_action && (
+                    <div>
+                      <dt className="text-slate-500">Call to Action</dt>
+                      <dd className="font-medium text-slate-900">{finalContent.call_to_action}</dd>
+                    </div>
+                  )}
+
+                  {/* Contact Info */}
+                  <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-100">
+                    <div>
+                      <dt className="text-slate-500">Contact Email</dt>
+                      <dd className="font-medium text-slate-900">{finalContent.contact_email || '—'}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-slate-500">Phone Number</dt>
+                      <dd className="font-medium text-slate-900">{finalContent.contact_phone || '—'}</dd>
+                    </div>
                   </div>
-                )}
-                {finalContent.contact_phone && (
-                  <div>
-                    <dt className="text-slate-500">Contact Phone</dt>
-                    <dd className="font-medium text-slate-900">{finalContent.contact_phone}</dd>
+
+                  {/* Address */}
+                  {finalContent.address && (
+                    <div>
+                      <dt className="text-slate-500">Business Address</dt>
+                      <dd className="font-medium text-slate-900">{finalContent.address}</dd>
+                    </div>
+                  )}
+
+                  {/* Social Links */}
+                  {finalContent.social_links && (
+                    <div>
+                      <dt className="text-slate-500 mb-1">Social Media Links</dt>
+                      <dd className="text-slate-700 font-mono text-xs whitespace-pre-wrap bg-slate-50 p-3 rounded-lg">{finalContent.social_links}</dd>
+                    </div>
+                  )}
+
+                  {/* Photos */}
+                  <div className="pt-2 border-t border-slate-100">
+                    <dt className="text-slate-500 mb-2">Photos ({finalImages.length}/6)</dt>
+                    {finalImages.length > 0 ? (
+                      <div className="grid grid-cols-3 gap-2">
+                        {finalImages.map((url, i) => (
+                          <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="block">
+                            <img
+                              src={url}
+                              alt={`Photo ${i + 1}`}
+                              className="w-full aspect-square object-cover rounded-lg border border-slate-200 hover:border-slate-400 transition-colors"
+                            />
+                          </a>
+                        ))}
+                      </div>
+                    ) : (
+                      <dd className="text-slate-400 italic">No photos uploaded yet</dd>
+                    )}
                   </div>
-                )}
-              </dl>
+                </dl>
+              ) : (
+                <p className="text-slate-500 text-sm">Client has not submitted their content yet.</p>
+              )}
             </div>
           )}
 

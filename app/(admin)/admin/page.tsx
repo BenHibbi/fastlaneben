@@ -1,10 +1,18 @@
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { getAdminUser } from '@/lib/auth/admin'
 import { STATE_CONFIG } from '@/lib/state-machine'
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
 import type { ClientState, Client } from '@/types/database'
 
 export default async function AdminDashboard() {
-  const supabase = await createClient()
+  // Verify admin access
+  const adminUser = await getAdminUser()
+  if (!adminUser) {
+    redirect('/login?next=/admin')
+  }
+
+  const supabase = createAdminClient()
 
   // Get all clients
   const { data: clients } = await supabase

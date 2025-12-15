@@ -32,10 +32,18 @@ export async function POST(request: NextRequest) {
 
     const client = data as Client
 
-    // Verify client is in ACTIVATION state
-    if (client.state !== 'ACTIVATION') {
+    // Verify client is in PREVIEW_READY or ACTIVATION state
+    if (!['PREVIEW_READY', 'ACTIVATION'].includes(client.state)) {
       return NextResponse.json(
-        { error: 'Client is not in activation state' },
+        { error: 'Client is not ready for checkout' },
+        { status: 400 }
+      )
+    }
+
+    // Verify terms have been accepted
+    if (!client.terms_accepted_at) {
+      return NextResponse.json(
+        { error: 'Terms of Service must be accepted before checkout' },
         { status: 400 }
       )
     }
@@ -88,7 +96,7 @@ export async function POST(request: NextRequest) {
         },
       },
       success_url: `${baseUrl}/client/final?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${baseUrl}/client/activate`,
+      cancel_url: `${baseUrl}/client`,
       automatic_tax: {
         enabled: true,
       },

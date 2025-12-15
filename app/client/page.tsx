@@ -628,7 +628,7 @@ function LockedSection({ client }: { client: Client }) {
 }
 
 // ============================================================================
-// PREVIEW SECTION (Review mockup)
+// PREVIEW SECTION (Review mockup + Direct Stripe checkout)
 // ============================================================================
 
 function PreviewSection({
@@ -638,55 +638,15 @@ function PreviewSection({
   client: Client
   onUpdate: () => void
 }) {
-  const [showRevisionModal, setShowRevisionModal] = useState(false)
-  const [revisionNotes, setRevisionNotes] = useState('')
+  const [termsAccepted, setTermsAccepted] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
   const screenshots = (client.preview_screenshots || []) as string[]
 
-  const handleApprove = async () => {
-    if (!confirm('Approve this design and proceed to activation?')) return
-
-    setSubmitting(true)
-    setError('')
-
-    const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-
-    const { error: updateError } = await supabase
-      .from('clients')
-      .update({
-        state: 'ACTIVATION',
-        state_changed_at: new Date().toISOString(),
-        revision_requested: false,
-        revision_notes: null,
-        updated_at: new Date().toISOString()
-      } as never)
-      .eq('id', client.id)
-
-    if (updateError) {
-      setError('Failed to approve. Please try again.')
-      setSubmitting(false)
-      return
-    }
-
-    await supabase.from('state_transitions').insert({
-      client_id: client.id,
-      from_state: 'PREVIEW_READY',
-      to_state: 'ACTIVATION',
-      triggered_by: user?.id,
-      trigger_type: 'CLIENT',
-      metadata: { action: 'preview_approved' }
-    } as never)
-
-    setSubmitting(false)
-    onUpdate()
-  }
-
-  const handleRequestRevision = async () => {
-    if (!revisionNotes.trim()) {
-      setError('Please describe what you would like changed.')
+  const handleSubscribe = async () => {
+    if (!termsAccepted) {
+      setError('Please accept the Terms of Service and Privacy Policy to continue.')
       return
     }
 
@@ -694,37 +654,44 @@ function PreviewSection({
     setError('')
 
     const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
 
+    // 1. Record terms acceptance
     const { error: updateError } = await supabase
       .from('clients')
       .update({
-        revision_requested: true,
-        revision_notes: revisionNotes,
+        terms_accepted_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       } as never)
       .eq('id', client.id)
 
     if (updateError) {
-      setError('Failed to submit. Please try again.')
+      setError('Failed to process. Please try again.')
       setSubmitting(false)
       return
     }
 
-    await supabase.from('state_transitions').insert({
-      client_id: client.id,
-      from_state: 'PREVIEW_READY',
-      to_state: 'PREVIEW_READY',
-      triggered_by: user?.id,
-      trigger_type: 'CLIENT',
-      metadata: { action: 'revision_requested', notes: revisionNotes }
-    } as never)
+    // 2. Redirect to Stripe checkout
+    try {
+      const res = await fetch('/api/stripe/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId: client.id })
+      })
 
-    setSubmitting(false)
-    setShowRevisionModal(false)
-    setRevisionNotes('')
-    alert('Revision request submitted! We will update your preview soon.')
-    onUpdate()
+      const data = await res.json()
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to create checkout session')
+      }
+
+      // Redirect to Stripe
+      if (data.url) {
+        window.location.href = data.url
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start checkout')
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -734,7 +701,7 @@ function PreviewSection({
           Your preview is ready!
         </h1>
         <p className="text-slate-500 text-lg">
-          Review the design below and let us know what you think.
+          Review your website design below. Love it? Subscribe to make it live.
         </p>
       </div>
 
@@ -772,73 +739,79 @@ function PreviewSection({
         </div>
       )}
 
-      {/* Revision notice */}
-      {client.revision_requested && client.revision_notes && (
-        <div className="mb-8 p-4 bg-amber-50 border border-amber-200 rounded-xl">
-          <p className="font-medium text-amber-800 mb-1">Revision requested</p>
-          <p className="text-sm text-amber-700">{client.revision_notes}</p>
+      {/* Subscription card */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-6">
+        <div className="text-center mb-6">
+          <p className="text-3xl font-bold text-slate-900">$39<span className="text-lg font-normal text-slate-500">/month</span></p>
+          <p className="text-slate-500 text-sm mt-1">Cancel anytime</p>
         </div>
-      )}
 
-      {/* Error */}
-      {error && (
-        <p className="mb-4 text-red-500 text-sm text-center">{error}</p>
-      )}
+        {/* Features */}
+        <ul className="space-y-3 mb-6">
+          <li className="flex items-center gap-3 text-slate-700">
+            <svg className="w-5 h-5 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+            Custom design for your business
+          </li>
+          <li className="flex items-center gap-3 text-slate-700">
+            <svg className="w-5 h-5 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+            Hosting & SSL included
+          </li>
+          <li className="flex items-center gap-3 text-slate-700">
+            <svg className="w-5 h-5 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+            Mobile optimized
+          </li>
+          <li className="flex items-center gap-3 text-slate-700">
+            <svg className="w-5 h-5 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+            Ongoing updates & support
+          </li>
+        </ul>
 
-      {/* Actions */}
-      <div className="flex flex-col sm:flex-row gap-4">
+        {/* Terms checkbox */}
+        <label className="flex items-start gap-3 cursor-pointer mb-6">
+          <input
+            type="checkbox"
+            checked={termsAccepted}
+            onChange={(e) => setTermsAccepted(e.target.checked)}
+            className="mt-1 w-4 h-4 rounded border-slate-300 text-lime-500 focus:ring-lime-400"
+          />
+          <span className="text-sm text-slate-600">
+            I agree to the{' '}
+            <a href="/terms" target="_blank" className="text-blue-600 hover:underline">Terms of Service</a>
+            {' '}and{' '}
+            <a href="/privacy" target="_blank" className="text-blue-600 hover:underline">Privacy Policy</a>
+          </span>
+        </label>
+
+        {/* Error */}
+        {error && (
+          <p className="mb-4 text-red-500 text-sm text-center">{error}</p>
+        )}
+
+        {/* Subscribe button */}
         <button
-          onClick={handleApprove}
-          disabled={submitting}
-          className="flex-1 px-8 py-4 bg-[#C3F53C] text-slate-900 rounded-xl font-bold text-lg transition-all hover:bg-[#b4e62b] disabled:opacity-50"
+          onClick={handleSubscribe}
+          disabled={submitting || !termsAccepted}
+          className={`w-full px-8 py-4 rounded-xl font-bold text-lg transition-all ${
+            termsAccepted
+              ? 'bg-[#C3F53C] text-slate-900 hover:bg-[#b4e62b]'
+              : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+          } disabled:opacity-50`}
         >
-          {submitting ? 'Processing...' : 'Approve & Continue'}
-        </button>
-        <button
-          onClick={() => setShowRevisionModal(true)}
-          disabled={submitting}
-          className="flex-1 px-8 py-4 border-2 border-slate-200 text-slate-700 rounded-xl font-bold text-lg transition-all hover:bg-slate-50 disabled:opacity-50"
-        >
-          Request Changes
+          {submitting ? 'Redirecting to checkout...' : 'Subscribe - $39/month'}
         </button>
       </div>
 
-      {/* Revision Modal */}
-      {showRevisionModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl p-6 max-w-md w-full">
-            <h2 className="font-serif-display text-2xl text-slate-900 mb-4">
-              Request changes
-            </h2>
-            <p className="text-slate-500 mb-4">
-              Tell us what you would like adjusted in your preview.
-            </p>
-            <textarea
-              value={revisionNotes}
-              onChange={(e) => setRevisionNotes(e.target.value)}
-              placeholder="e.g., Could the header be darker? I would like to change the font..."
-              rows={4}
-              className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:border-lime-400 focus:ring-2 focus:ring-lime-100 outline-none transition-all resize-none mb-4"
-              autoFocus
-            />
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowRevisionModal(false)}
-                className="flex-1 px-4 py-2 border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleRequestRevision}
-                disabled={submitting || !revisionNotes.trim()}
-                className="flex-1 px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50 transition-colors"
-              >
-                {submitting ? 'Sending...' : 'Submit'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <p className="text-center text-xs text-slate-400">
+        Secure payment powered by Stripe
+      </p>
     </div>
   )
 }

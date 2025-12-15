@@ -50,7 +50,9 @@ export async function POST(request: NextRequest) {
           .single()
 
         const client = data as { state: string } | null
-        if (client && client.state === 'ACTIVATION') {
+        // Accept both PREVIEW_READY and ACTIVATION states for checkout completion
+        if (client && ['PREVIEW_READY', 'ACTIVATION'].includes(client.state)) {
+          const previousState = client.state
           // Update client with subscription info and transition to FINAL_ONBOARDING
           const { error: updateError } = await supabase
             .from('clients')
@@ -67,7 +69,7 @@ export async function POST(request: NextRequest) {
             // Log state transition
             await supabase.from('state_transitions').insert({
               client_id: clientId,
-              from_state: 'ACTIVATION',
+              from_state: previousState,
               to_state: 'FINAL_ONBOARDING',
               trigger_type: 'WEBHOOK',
               metadata: {
