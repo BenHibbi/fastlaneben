@@ -3,8 +3,10 @@ import { getAdminUser } from '@/lib/auth/admin'
 import { STATE_CONFIG } from '@/lib/state-machine'
 import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
-import type { Client, StateTransition } from '@/types/database'
+import type { Client, StateTransition, VoiceBrief, ReferenceScreenshot, ReactPreview, RevisionRequest } from '@/types/database'
 import AdminClientActions from './actions'
+import CreativeBriefSection from './creative-brief'
+import RevisionRequestsSection from './revision-requests'
 
 export default async function ClientDetailPage({
   params,
@@ -49,6 +51,45 @@ export default async function ClientDetailPage({
     .select('*')
     .eq('client_id', id)
     .order('created_at', { ascending: false })
+
+  // Get voice brief
+  const { data: voiceBriefData } = await supabase
+    .from('voice_briefs')
+    .select('*')
+    .eq('client_id', id)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single()
+
+  const voiceBrief = voiceBriefData as VoiceBrief | null
+
+  // Get reference screenshots
+  const { data: referencesData } = await supabase
+    .from('reference_screenshots')
+    .select('*')
+    .eq('client_id', id)
+    .order('created_at', { ascending: false })
+
+  const referenceScreenshots = (referencesData || []) as ReferenceScreenshot[]
+
+  // Get active React preview
+  const { data: previewData } = await supabase
+    .from('react_previews')
+    .select('*')
+    .eq('client_id', id)
+    .eq('is_active', true)
+    .single()
+
+  const reactPreview = previewData as ReactPreview | null
+
+  // Get revision requests
+  const { data: revisionsData } = await supabase
+    .from('revision_requests')
+    .select('*')
+    .eq('client_id', id)
+    .order('created_at', { ascending: false })
+
+  const revisionRequests = (revisionsData || []) as RevisionRequest[]
 
   // Parse intake data
   const intakeData = client.intake_data as Record<string, unknown> | null
@@ -112,7 +153,24 @@ export default async function ClientDetailPage({
             previewUrl={client.preview_url}
             liveUrl={client.live_url}
             previewScreenshots={(client.preview_screenshots || []) as string[]}
+            currentReactPreview={reactPreview}
           />
+
+          {/* Creative Brief Section */}
+          {showFinalContent && (
+            <CreativeBriefSection
+              voiceBrief={voiceBrief}
+              referenceScreenshots={referenceScreenshots}
+            />
+          )}
+
+          {/* Revision Requests Section */}
+          {revisionRequests.length > 0 && (
+            <RevisionRequestsSection
+              revisionRequests={revisionRequests}
+              clientId={client.id}
+            />
+          )}
 
           {/* Intake Data */}
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">

@@ -3,9 +3,16 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import type { Client, ClientState } from '@/types/database'
+import type { Client, ClientState, OnboardingPhase } from '@/types/database'
 import { STATE_CONFIG } from '@/lib/state-machine'
+import { ONBOARDING_PHASE_CONFIG } from '@/types/database'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
+import {
+  VoiceBriefRecorder,
+  ReferenceScreenshots,
+  ReactPreviewRenderer,
+  RevisionRequestForm
+} from '@/components/client'
 
 // ============================================================================
 // CONSTANTS
@@ -104,8 +111,8 @@ export default function ClientSingleSurface() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-white via-lime-50/30 to-white">
+      {/* Header - always constrained */}
       <div className="max-w-4xl mx-auto px-4 py-8">
-        {/* Header */}
         <header className="mb-8">
           <a href="/" className="inline-block">
             <span className="font-serif-display font-bold italic text-2xl text-slate-900">Fastlane.</span>
@@ -129,8 +136,10 @@ export default function ClientSingleSurface() {
             )}
           </div>
         )}
+      </div>
 
-        {/* Render section based on state */}
+      {/* Content - FINAL_ONBOARDING gets full width, others constrained */}
+      <div className={state === 'FINAL_ONBOARDING' ? 'px-4' : 'max-w-4xl mx-auto px-4'}>
         {!client || !state ? (
           <IntakeSection
             userEmail={userEmail!}
@@ -639,14 +648,15 @@ function PreviewSection({
   onUpdate: () => void
 }) {
   const [termsAccepted, setTermsAccepted] = useState(false)
+  const [scopeUnderstood, setScopeUnderstood] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
   const screenshots = (client.preview_screenshots || []) as string[]
 
   const handleSubscribe = async () => {
-    if (!termsAccepted) {
-      setError('Please accept the Terms of Service and Privacy Policy to continue.')
+    if (!scopeUnderstood || !termsAccepted) {
+      setError('Please accept both checkboxes to continue.')
       return
     }
 
@@ -703,6 +713,11 @@ function PreviewSection({
         <p className="text-slate-500 text-lg">
           Review your website design below. Love it? Subscribe to make it live.
         </p>
+        <div className="mt-4 mx-auto max-w-xl p-4 bg-blue-50 border border-blue-200 rounded-xl">
+          <p className="text-sm text-blue-700">
+            <strong>Note:</strong> This is an example of what could be done. Of course, feel free to tell us if you&apos;d like something different once you subscribe.
+          </p>
+        </div>
       </div>
 
       {/* Mockup display */}
@@ -746,33 +761,111 @@ function PreviewSection({
           <p className="text-slate-500 text-sm mt-1">Cancel anytime</p>
         </div>
 
-        {/* Features */}
-        <ul className="space-y-3 mb-6">
-          <li className="flex items-center gap-3 text-slate-700">
-            <svg className="w-5 h-5 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
-            Custom design for your business
-          </li>
-          <li className="flex items-center gap-3 text-slate-700">
-            <svg className="w-5 h-5 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
-            Hosting & SSL included
-          </li>
-          <li className="flex items-center gap-3 text-slate-700">
-            <svg className="w-5 h-5 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
-            Mobile optimized
-          </li>
-          <li className="flex items-center gap-3 text-slate-700">
-            <svg className="w-5 h-5 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
-            Ongoing updates & support
-          </li>
-        </ul>
+        {/* What's included */}
+        <div className="mb-6">
+          <h3 className="font-medium text-slate-900 mb-3">What&apos;s included:</h3>
+          <ul className="space-y-2">
+            <li className="flex items-center gap-3 text-slate-700 text-sm">
+              <svg className="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              A custom-designed website tailored to your business
+            </li>
+            <li className="flex items-center gap-3 text-slate-700 text-sm">
+              <svg className="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              1 page (scrollable sections)
+            </li>
+            <li className="flex items-center gap-3 text-slate-700 text-sm">
+              <svg className="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              Hosting included (no extra cost)
+            </li>
+            <li className="flex items-center gap-3 text-slate-700 text-sm">
+              <svg className="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              Mobile-optimized
+            </li>
+            <li className="flex items-center gap-3 text-slate-700 text-sm">
+              <svg className="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              1 round of revisions
+            </li>
+            <li className="flex items-center gap-3 text-slate-700 text-sm">
+              <svg className="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              Basic email support
+            </li>
+          </ul>
+        </div>
+
+        {/* What's NOT included */}
+        <div className="mb-6">
+          <h3 className="font-medium text-slate-900 mb-3">What&apos;s NOT included:</h3>
+          <ul className="space-y-2">
+            <li className="flex items-center gap-3 text-slate-500 text-sm">
+              <svg className="w-4 h-4 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+              Ongoing changes after launch
+            </li>
+            <li className="flex items-center gap-3 text-slate-500 text-sm">
+              <svg className="w-4 h-4 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+              Unlimited revisions (only 1 round)
+            </li>
+            <li className="flex items-center gap-3 text-slate-500 text-sm">
+              <svg className="w-4 h-4 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+              Additional pages (just 1)
+            </li>
+            <li className="flex items-center gap-3 text-slate-500 text-sm">
+              <svg className="w-4 h-4 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+              Marketing or SEO services
+            </li>
+            <li className="flex items-center gap-3 text-slate-500 text-sm">
+              <svg className="w-4 h-4 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+              Live calls (everything is async via text/email)
+            </li>
+          </ul>
+        </div>
+
+        {/* Important conditions */}
+        <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+          <h3 className="font-medium text-amber-900 mb-2">Important:</h3>
+          <ul className="space-y-1.5 text-sm text-amber-800">
+            <li>- The mockup above is free. You only pay when you approve.</li>
+            <li>- Your site will be live within 7 days of subscribing.</li>
+            <li>- You get 48h to request revisions after receiving the final preview.</li>
+            <li>- If you don&apos;t respond within 48h, the site goes live automatically.</li>
+            <li>- Cancel anytime. If you cancel, the site goes offline.</li>
+            <li>- You do not own the code or design (it stays on our platform).</li>
+          </ul>
+        </div>
+
+        {/* Scope understood checkbox */}
+        <label className="flex items-start gap-3 cursor-pointer mb-4">
+          <input
+            type="checkbox"
+            checked={scopeUnderstood}
+            onChange={(e) => setScopeUnderstood(e.target.checked)}
+            className="mt-1 w-4 h-4 rounded border-slate-300 text-lime-500 focus:ring-lime-400"
+          />
+          <span className="text-sm text-slate-600">
+            I understand this is a fixed-scope service with limited revisions and no ongoing changes included.
+          </span>
+        </label>
 
         {/* Terms checkbox */}
         <label className="flex items-start gap-3 cursor-pointer mb-6">
@@ -798,15 +891,39 @@ function PreviewSection({
         {/* Subscribe button */}
         <button
           onClick={handleSubscribe}
-          disabled={submitting || !termsAccepted}
+          disabled={submitting || !termsAccepted || !scopeUnderstood}
           className={`w-full px-8 py-4 rounded-xl font-bold text-lg transition-all ${
-            termsAccepted
+            termsAccepted && scopeUnderstood
               ? 'bg-[#C3F53C] text-slate-900 hover:bg-[#b4e62b]'
               : 'bg-slate-200 text-slate-400 cursor-not-allowed'
           } disabled:opacity-50`}
         >
           {submitting ? 'Redirecting to checkout...' : 'Subscribe - $39/month'}
         </button>
+
+        {/* DEV ONLY: Skip payment button */}
+        {process.env.NODE_ENV === 'development' && (
+          <button
+            onClick={async () => {
+              setSubmitting(true)
+              const supabase = createClient()
+              await supabase
+                .from('clients')
+                .update({
+                  state: 'FINAL_ONBOARDING',
+                  state_changed_at: new Date().toISOString(),
+                  terms_accepted_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString()
+                } as never)
+                .eq('id', client.id)
+              onUpdate()
+            }}
+            disabled={submitting}
+            className="w-full mt-3 px-4 py-2 border-2 border-dashed border-orange-300 text-orange-600 rounded-xl text-sm font-medium hover:bg-orange-50 transition-colors"
+          >
+            Skip Payment (Dev Only)
+          </button>
+        )}
       </div>
 
       <p className="text-center text-xs text-slate-400">
@@ -950,7 +1067,120 @@ function ActivationSection({
 }
 
 // ============================================================================
-// FINAL ONBOARDING SECTION (Content & images)
+// PHASE PROGRESS INDICATOR
+// ============================================================================
+
+function PhaseProgress({
+  phases,
+  currentPhase,
+  completedPhases = [],
+  onPrevious,
+  onNext
+}: {
+  phases: OnboardingPhase[]
+  currentPhase: OnboardingPhase
+  completedPhases?: OnboardingPhase[]
+  onPrevious?: () => void
+  onNext?: () => void
+}) {
+  const currentIndex = phases.indexOf(currentPhase)
+  const canGoPrevious = currentIndex > 0 && onPrevious
+  const canGoNext = onNext && completedPhases.includes(phases[currentIndex])
+
+  return (
+    <div className="mb-8">
+      {/* Progress bar */}
+      <div className="flex items-center justify-between mb-4">
+        {phases.map((phase, index) => {
+          const isCompleted = completedPhases.includes(phase) || index < currentIndex
+          const isCurrent = index === currentIndex
+          const config = ONBOARDING_PHASE_CONFIG[phase]
+
+          return (
+            <div key={phase} className="flex items-center flex-1">
+              {/* Circle */}
+              <div className="flex flex-col items-center">
+                <div
+                  className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-colors ${
+                    isCompleted
+                      ? 'bg-green-500 text-white'
+                      : isCurrent
+                      ? 'bg-slate-900 text-white'
+                      : 'bg-slate-200 text-slate-500'
+                  }`}
+                >
+                  {isCompleted ? '✓' : index + 1}
+                </div>
+                <span
+                  className={`text-xs mt-1 hidden sm:block ${
+                    isCurrent ? 'text-slate-900 font-medium' : 'text-slate-400'
+                  }`}
+                >
+                  {config.label}
+                </span>
+              </div>
+
+              {/* Connector line */}
+              {index < phases.length - 1 && (
+                <div
+                  className={`flex-1 h-0.5 mx-2 ${
+                    isCompleted ? 'bg-green-500' : 'bg-slate-200'
+                  }`}
+                />
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Navigation and description */}
+      <div className="flex items-center justify-between">
+        {/* Previous button */}
+        <button
+          onClick={onPrevious}
+          disabled={!canGoPrevious}
+          className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+            canGoPrevious
+              ? 'text-slate-600 hover:bg-slate-100'
+              : 'text-slate-300 cursor-not-allowed'
+          }`}
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+          Back
+        </button>
+
+        {/* Current phase description */}
+        <p className="text-sm text-slate-500">
+          Step {currentIndex + 1} of {phases.length}:{' '}
+          <span className="font-medium text-slate-700">
+            {ONBOARDING_PHASE_CONFIG[currentPhase].description}
+          </span>
+        </p>
+
+        {/* Next button */}
+        <button
+          onClick={onNext}
+          disabled={!canGoNext}
+          className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+            canGoNext
+              ? 'text-slate-600 hover:bg-slate-100'
+              : 'text-slate-300 cursor-not-allowed'
+          }`}
+        >
+          Next
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ============================================================================
+// FINAL ONBOARDING SECTION (Multi-phase: Voice Brief → References → Content → Preview → Revisions)
 // ============================================================================
 
 const MAX_PHOTOS = 6
@@ -962,6 +1192,47 @@ function FinalOnboardingSection({
   client: Client
   onUpdate: () => void
 }) {
+  // Determine current phase from client data
+  const getInitialPhase = (): OnboardingPhase => {
+    // Check if onboarding_phase is explicitly set
+    const savedPhase = client.onboarding_phase as OnboardingPhase | null
+
+    // If in building phase, stay there
+    if (savedPhase === 'building') return 'building'
+
+    // If there's an active React preview, show it
+    if (client.current_react_preview_id) {
+      return savedPhase === 'revisions' ? 'revisions' : 'react_preview'
+    }
+    // Check creative brief status
+    const briefStatus = client.creative_brief_status || 'not_started'
+    if (briefStatus === 'not_started') return 'voice_brief'
+    if (briefStatus === 'voice_recorded') return 'voice_brief' // Still needs analysis
+    if (briefStatus === 'brief_generated') return 'references'
+    // Default to content if brief is complete
+    return savedPhase || 'content'
+  }
+
+  const [phase, setPhase] = useState<OnboardingPhase>(getInitialPhase())
+  const [showRevisionForm, setShowRevisionForm] = useState(false)
+
+  // Re-calculate phase when client updates
+  useEffect(() => {
+    const newPhase = getInitialPhase()
+    // Always sync to building phase if content was just submitted
+    if (newPhase === 'building' && phase === 'content') {
+      setPhase('building')
+    }
+    // Only auto-advance if we're at an earlier phase
+    if (
+      newPhase === 'react_preview' &&
+      (phase === 'voice_brief' || phase === 'references' || phase === 'content' || phase === 'building')
+    ) {
+      setPhase('react_preview')
+    }
+  }, [client])
+
+  // Content form state (for the 'content' phase)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [submitting, setSubmitting] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -1039,11 +1310,20 @@ function FinalOnboardingSection({
         continue
       }
 
-      const { data: { publicUrl } } = supabase.storage
+      // Use signed URL (1 year) since bucket may not be public
+      const { data: signedUrlData } = await supabase.storage
         .from('client-files')
-        .getPublicUrl(path)
+        .createSignedUrl(path, 60 * 60 * 24 * 365) // 1 year
 
-      newUrls.push(publicUrl)
+      if (signedUrlData?.signedUrl) {
+        newUrls.push(signedUrlData.signedUrl)
+      } else {
+        // Fallback to public URL
+        const { data: { publicUrl } } = supabase.storage
+          .from('client-files')
+          .getPublicUrl(path)
+        newUrls.push(publicUrl)
+      }
     }
 
     setUploadedImages(prev => [...prev, ...newUrls].slice(0, MAX_PHOTOS))
@@ -1058,10 +1338,33 @@ function FinalOnboardingSection({
     setUploadedImages(prev => prev.filter((_, i) => i !== index))
   }
 
+  // Validation helpers
+  const isValidEmail = (email: string) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    return emailRegex.test(email)
+  }
+
+  const isValidUrl = (url: string) => {
+    try {
+      new URL(url)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  const validateSocialLinks = (links: string) => {
+    if (!links.trim()) return true // Optional field
+    const urls = links.split('\n').filter(l => l.trim())
+    return urls.every(url => isValidUrl(url.trim()))
+  }
+
   const canSubmit = () => {
     const requiredFields = ['tagline', 'about', 'detailed_description', 'services', 'contact_email']
     const missingFields = requiredFields.filter(field => !formData[field as keyof typeof formData]?.trim())
-    return missingFields.length === 0 && uploadedImages.length > 0
+    const emailValid = isValidEmail(formData.contact_email)
+    const socialValid = validateSocialLinks(formData.social_links)
+    return missingFields.length === 0 && uploadedImages.length > 0 && emailValid && socialValid
   }
 
   const handleSubmit = async () => {
@@ -1071,6 +1374,18 @@ function FinalOnboardingSection({
 
     if (missingFields.length > 0) {
       setError('Please fill in all required fields (marked with *)')
+      return
+    }
+
+    // Validate email format
+    if (!isValidEmail(formData.contact_email)) {
+      setError('Please enter a valid email address')
+      return
+    }
+
+    // Validate social links format
+    if (!validateSocialLinks(formData.social_links)) {
+      setError('Please enter valid URLs for social media links (one per line, starting with https://)')
       return
     }
 
@@ -1084,11 +1399,13 @@ function FinalOnboardingSection({
 
     const supabase = createClient()
 
+    // Update content and transition to BUILDING state
     const { error: updateError } = await supabase
       .from('clients')
       .update({
         final_content: formData,
         final_images: uploadedImages,
+        onboarding_phase: 'building',
         updated_at: new Date().toISOString()
       } as never)
       .eq('id', client.id)
@@ -1111,12 +1428,293 @@ function FinalOnboardingSection({
     } as never)
 
     setSubmitting(false)
-    alert('Content saved! We will notify you when your site is live.')
+    setPhase('building')
     onUpdate()
   }
 
+  // Phase progress indicator
+  const phases: OnboardingPhase[] = ['voice_brief', 'references', 'content', 'building', 'react_preview', 'revisions']
+  const currentPhaseIndex = phases.indexOf(phase)
+
+  // Calculate completed phases based on client data
+  const getCompletedPhases = (): OnboardingPhase[] => {
+    const completed: OnboardingPhase[] = []
+    const briefStatus = client.creative_brief_status || 'not_started'
+
+    // Voice brief is complete if status is at least 'brief_generated' or 'complete'
+    if (briefStatus === 'brief_generated' || briefStatus === 'complete') {
+      completed.push('voice_brief')
+    }
+
+    // References is complete if status is 'complete'
+    if (briefStatus === 'complete') {
+      completed.push('references')
+    }
+
+    // Content is complete if final_content exists and has required fields
+    if (client.final_content && typeof client.final_content === 'object') {
+      const content = client.final_content as Record<string, string>
+      if (content.tagline && content.about && content.services && content.contact_email) {
+        completed.push('content')
+      }
+    }
+
+    // Building is complete if we have a react preview
+    if (client.current_react_preview_id) {
+      completed.push('building')
+    }
+
+    // React preview is always navigable once available
+    if (client.current_react_preview_id) {
+      completed.push('react_preview')
+    }
+
+    return completed
+  }
+
+  const completedPhases = getCompletedPhases()
+
+  // Navigation handlers
+  const goToPreviousPhase = () => {
+    if (currentPhaseIndex > 0) {
+      setPhase(phases[currentPhaseIndex - 1])
+    }
+  }
+
+  const goToNextPhase = () => {
+    if (currentPhaseIndex < phases.length - 1) {
+      setPhase(phases[currentPhaseIndex + 1])
+    }
+  }
+
+  // Render phase-specific content
+  if (phase === 'voice_brief') {
+    return (
+      <div className="max-w-2xl mx-auto">
+        <PhaseProgress
+          phases={phases}
+          currentPhase={phase}
+          completedPhases={completedPhases}
+          onNext={completedPhases.includes('voice_brief') ? goToNextPhase : undefined}
+        />
+        <VoiceBriefRecorder
+          client={client}
+          onComplete={() => setPhase('references')}
+          onUpdate={onUpdate}
+        />
+      </div>
+    )
+  }
+
+  if (phase === 'references') {
+    return (
+      <div className="max-w-2xl mx-auto">
+        <PhaseProgress
+          phases={phases}
+          currentPhase={phase}
+          completedPhases={completedPhases}
+          onPrevious={goToPreviousPhase}
+          onNext={completedPhases.includes('references') ? goToNextPhase : undefined}
+        />
+        <ReferenceScreenshots
+          client={client}
+          onComplete={() => setPhase('content')}
+          onUpdate={onUpdate}
+        />
+      </div>
+    )
+  }
+
+  // Handler for when revisions are submitted
+  const handleRevisionSubmitted = () => {
+    setShowRevisionForm(false)
+    setPhase('building')
+  }
+
+  if (phase === 'react_preview') {
+    if (showRevisionForm) {
+      return (
+        <div className="max-w-2xl mx-auto">
+          <PhaseProgress
+            phases={phases}
+            currentPhase="revisions"
+            completedPhases={completedPhases}
+            onPrevious={() => setShowRevisionForm(false)}
+          />
+          <RevisionRequestForm
+            client={client}
+            onBack={() => setShowRevisionForm(false)}
+            onUpdate={onUpdate}
+            onSubmitted={handleRevisionSubmitted}
+          />
+        </div>
+      )
+    }
+    return (
+      <div className="w-full">
+        <div className="max-w-4xl mx-auto">
+          <PhaseProgress
+            phases={phases}
+            currentPhase={phase}
+            completedPhases={completedPhases}
+            onPrevious={goToPreviousPhase}
+          />
+        </div>
+        <ReactPreviewRenderer
+          client={client}
+          onRequestRevision={() => setShowRevisionForm(true)}
+        />
+      </div>
+    )
+  }
+
+  if (phase === 'revisions') {
+    return (
+      <div className="max-w-2xl mx-auto">
+        <PhaseProgress
+          phases={phases}
+          currentPhase={phase}
+          completedPhases={completedPhases}
+          onPrevious={() => setPhase('react_preview')}
+        />
+        <RevisionRequestForm
+          client={client}
+          onBack={() => setPhase('react_preview')}
+          onUpdate={onUpdate}
+          onSubmitted={handleRevisionSubmitted}
+        />
+      </div>
+    )
+  }
+
+  if (phase === 'building') {
+    return (
+      <div className="max-w-3xl mx-auto">
+        <div className="text-center mb-12">
+          <div className="inline-flex items-center gap-2 px-4 py-2 bg-lime-100 text-lime-700 rounded-full text-sm font-medium mb-6">
+            <span className="relative flex h-3 w-3">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-lime-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-lime-500"></span>
+            </span>
+            Building in progress
+          </div>
+          <h1 className="font-serif-display text-3xl sm:text-4xl text-slate-900 mb-4">
+            We&apos;re building your site!
+          </h1>
+          <p className="text-slate-500 text-lg max-w-md mx-auto">
+            Our team is crafting something beautiful for {client.business_name || 'your business'}. We&apos;ll notify you when it&apos;s ready to review.
+          </p>
+        </div>
+
+        {/* Animated mockup preview */}
+        <div className="relative">
+          {/* Browser window mockup */}
+          <div className="bg-slate-900 rounded-2xl shadow-2xl overflow-hidden">
+            {/* Browser chrome */}
+            <div className="bg-slate-800 px-4 py-3 flex items-center gap-2">
+              <div className="flex gap-1.5">
+                <div className="w-3 h-3 rounded-full bg-red-500"></div>
+                <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
+                <div className="w-3 h-3 rounded-full bg-green-500"></div>
+              </div>
+              <div className="flex-1 bg-slate-700 rounded-lg px-4 py-1.5 text-xs text-slate-400 text-center">
+                {client.business_name?.toLowerCase().replace(/\s+/g, '') || 'your-site'}.com
+              </div>
+            </div>
+
+            {/* Website content with animation */}
+            <div className="bg-gradient-to-br from-slate-50 to-white p-8 min-h-[400px] relative overflow-hidden">
+              {/* Animated skeleton elements */}
+              <div className="space-y-6 animate-pulse">
+                {/* Header */}
+                <div className="flex items-center justify-between">
+                  <div className="h-8 w-32 bg-slate-200 rounded-lg"></div>
+                  <div className="flex gap-4">
+                    <div className="h-4 w-16 bg-slate-200 rounded"></div>
+                    <div className="h-4 w-16 bg-slate-200 rounded"></div>
+                    <div className="h-4 w-16 bg-slate-200 rounded"></div>
+                  </div>
+                </div>
+
+                {/* Hero */}
+                <div className="py-12 text-center space-y-4">
+                  <div className="h-10 w-3/4 bg-slate-200 rounded-lg mx-auto"></div>
+                  <div className="h-6 w-1/2 bg-slate-200 rounded mx-auto"></div>
+                  <div className="h-12 w-40 bg-lime-200 rounded-xl mx-auto mt-6"></div>
+                </div>
+
+                {/* Features grid */}
+                <div className="grid grid-cols-3 gap-4 pt-8">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="space-y-3 text-center">
+                      <div className="h-16 w-16 bg-slate-200 rounded-xl mx-auto"></div>
+                      <div className="h-4 w-24 bg-slate-200 rounded mx-auto"></div>
+                      <div className="h-3 w-32 bg-slate-100 rounded mx-auto"></div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Floating construction elements */}
+              <div className="absolute inset-0 pointer-events-none">
+                <div className="absolute top-1/4 left-1/4 text-4xl animate-bounce" style={{ animationDelay: '0s' }}>🔧</div>
+                <div className="absolute top-1/3 right-1/4 text-3xl animate-bounce" style={{ animationDelay: '0.5s' }}>⚡</div>
+                <div className="absolute bottom-1/3 left-1/3 text-3xl animate-bounce" style={{ animationDelay: '1s' }}>✨</div>
+              </div>
+            </div>
+
+            {/* Footer with FASTLANE branding */}
+            <div className="bg-[#C3F53C] py-6 text-center">
+              <div className="font-serif-display font-black italic text-4xl text-slate-900 tracking-tight">
+                FASTLANE
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Status info */}
+        <div className="mt-8 bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+          <h3 className="font-medium text-slate-900 mb-4 flex items-center gap-2">
+            <span className="text-xl">📋</span> What happens next?
+          </h3>
+          <ul className="space-y-3 text-sm text-slate-600">
+            <li className="flex items-start gap-3">
+              <span className="flex-shrink-0 w-6 h-6 rounded-full bg-lime-100 text-lime-600 flex items-center justify-center text-xs font-bold">1</span>
+              <span>Our team reviews your content and references</span>
+            </li>
+            <li className="flex items-start gap-3">
+              <span className="flex-shrink-0 w-6 h-6 rounded-full bg-lime-100 text-lime-600 flex items-center justify-center text-xs font-bold">2</span>
+              <span>We build a custom website tailored to your brand</span>
+            </li>
+            <li className="flex items-start gap-3">
+              <span className="flex-shrink-0 w-6 h-6 rounded-full bg-lime-100 text-lime-600 flex items-center justify-center text-xs font-bold">3</span>
+              <span>You&apos;ll receive an email when your preview is ready</span>
+            </li>
+            <li className="flex items-start gap-3">
+              <span className="flex-shrink-0 w-6 h-6 rounded-full bg-lime-100 text-lime-600 flex items-center justify-center text-xs font-bold">4</span>
+              <span>Review and request up to 2 rounds of revisions</span>
+            </li>
+          </ul>
+        </div>
+
+        {/* Estimated time */}
+        <div className="mt-4 text-center text-sm text-slate-400">
+          <p>Typical turnaround: 2-3 business days</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Default: Content phase
   return (
     <div className="max-w-2xl mx-auto">
+      <PhaseProgress
+        phases={phases}
+        currentPhase={phase}
+        completedPhases={completedPhases}
+        onPrevious={goToPreviousPhase}
+        onNext={completedPhases.includes('content') ? goToNextPhase : undefined}
+      />
       <div className="text-center mb-8">
         <h1 className="font-serif-display text-3xl sm:text-4xl text-slate-900 mb-4">
           Let&apos;s finalize your content

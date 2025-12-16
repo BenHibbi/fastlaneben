@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getStripe } from '@/lib/stripe'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { sendPaymentConfirmedEmail } from '@/lib/email'
 import Stripe from 'stripe'
 
 export const runtime = 'nodejs'
@@ -78,6 +79,18 @@ export async function POST(request: NextRequest) {
                 checkout_session_id: session.id
               }
             } as never)
+
+            // Send payment confirmed email
+            const { data: clientData } = await supabase
+              .from('clients')
+              .select('email, business_name')
+              .eq('id', clientId)
+              .single()
+
+            if (clientData) {
+              const typedClient = clientData as { email: string; business_name: string | null }
+              await sendPaymentConfirmedEmail(typedClient.email, typedClient.business_name || 'your business')
+            }
           }
         }
       }

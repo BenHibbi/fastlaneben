@@ -2,6 +2,7 @@
 
 import { createAdminClient } from '@/lib/supabase/admin'
 import { verifyAdmin } from '@/lib/auth/admin'
+import { sendMockupReadyEmail, sendSiteLiveEmail } from '@/lib/email'
 import type { ClientState } from '@/types/database'
 
 export async function transitionClientState(
@@ -80,6 +81,18 @@ export async function updateClientUrls(
       trigger_type: 'ADMIN',
       metadata: { action: 'live_url_set' }
     } as never)
+
+    // Send site live email
+    const { data: client } = await adminSupabase
+      .from('clients')
+      .select('email, business_name')
+      .eq('id', clientId)
+      .single()
+
+    if (client && liveUrl) {
+      const clientData = client as { email: string; business_name: string | null }
+      await sendSiteLiveEmail(clientData.email, clientData.business_name || 'Your', liveUrl)
+    }
   }
 
   return { success: true, transitioned: shouldTransitionToLive }
@@ -147,6 +160,18 @@ export async function updatePreviewScreenshots(
       trigger_type: 'ADMIN',
       metadata: { action: 'mockup_uploaded' }
     } as never)
+
+    // Send mockup ready email
+    const { data: client } = await adminSupabase
+      .from('clients')
+      .select('email, business_name')
+      .eq('id', clientId)
+      .single()
+
+    if (client) {
+      const clientData = client as { email: string; business_name: string | null }
+      await sendMockupReadyEmail(clientData.email, clientData.business_name || 'your business')
+    }
   }
 
   return { success: true, transitioned: shouldTransition }
@@ -182,9 +207,18 @@ export async function uploadMockup(
     throw new Error(`Upload failed: ${uploadError.message}`)
   }
 
-  const { data: urlData } = adminSupabase.storage
+  // Use signed URL (1 year expiry) since bucket may be private
+  const { data: signedUrlData, error: signedUrlError } = await adminSupabase.storage
     .from('client-files')
-    .getPublicUrl(fileName)
+    .createSignedUrl(fileName, 60 * 60 * 24 * 365) // 1 year
 
-  return { url: urlData.publicUrl }
+  if (signedUrlError || !signedUrlData) {
+    // Fallback to public URL if signed URL fails
+    const { data: urlData } = adminSupabase.storage
+      .from('client-files')
+      .getPublicUrl(fileName)
+    return { url: urlData.publicUrl }
+  }
+
+  return { url: signedUrlData.signedUrl }
 }
