@@ -137,8 +137,7 @@ export default function AdminClientActions({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           clientId,
-          rawCode: reactCode,
-          adminId: 'admin' // TODO: Get actual admin ID
+          rawCode: reactCode
         })
       })
 

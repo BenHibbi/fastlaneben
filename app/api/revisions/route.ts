@@ -1,85 +1,91 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import type { ModificationType } from '@/types/database'
+import { revisionRequestSchema, validateRequest, uuidSchema } from '@/lib/validation'
+import { REVISION_CONFIG } from '@/lib/config'
+import { revisionLogger } from '@/lib/logger'
+import type { Client, RevisionRequest } from '@/types/database'
+import { z } from 'zod'
 
 export const runtime = 'nodejs'
 
-const MAX_ROUNDS = 2
-const MAX_MODIFICATIONS_PER_ROUND = 10
+// Schema for PATCH requests
+const revisionPatchSchema = z.object({
+  revisionId: uuidSchema,
+  status: z.enum(['pending', 'in_progress', 'completed', 'rejected']),
+  adminResponse: z.string().max(2000).optional()
+})
 
 // POST - Client submits revision request
 export async function POST(request: NextRequest) {
   try {
-    const { clientId, modificationType, description } = await request.json()
+    const body = await request.json()
+    const validation = validateRequest(revisionRequestSchema, body)
 
-    if (!clientId || !modificationType || !description) {
-      return NextResponse.json(
-        { error: 'Client ID, modification type, and description are required' },
-        { status: 400 }
-      )
+    if (!validation.success) {
+      return NextResponse.json({ error: validation.error }, { status: 400 })
     }
 
+    const { clientId, modificationType, description } = validation.data
     const supabase = createAdminClient()
 
     // Get client and check limits
-    const { data: client, error: clientError } = await supabase
+    const { data: clientData, error: clientError } = await supabase
       .from('clients')
       .select('id, state, revision_round, revision_modifications_used')
       .eq('id', clientId)
       .single()
 
-    if (clientError || !client) {
+    if (clientError || !clientData) {
+      revisionLogger.warn('Client not found for revision', { clientId })
       return NextResponse.json({ error: 'Client not found' }, { status: 404 })
     }
 
-    const clientData = client as { id: string; state: string; revision_round: number | null; revision_modifications_used: number | null }
+    const client = clientData as Pick<Client, 'id' | 'state' | 'revision_round' | 'revision_modifications_used'>
 
-    if (clientData.state !== 'FINAL_ONBOARDING') {
+    if (client.state !== 'FINAL_ONBOARDING') {
       return NextResponse.json(
         { error: 'Client is not in final onboarding state' },
         { status: 400 }
       )
     }
 
-    const currentRound = clientData.revision_round || 1
-    const modificationsUsed = clientData.revision_modifications_used || 0
+    const currentRound = client.revision_round || 1
+    const modificationsUsed = client.revision_modifications_used || 0
 
     // Check if we've exceeded limits
-    if (currentRound > MAX_ROUNDS) {
+    if (currentRound > REVISION_CONFIG.MAX_ROUNDS) {
       return NextResponse.json(
         {
-          error: `Maximum ${MAX_ROUNDS} revision rounds allowed. Please contact support for additional changes.`
+          error: `Maximum ${REVISION_CONFIG.MAX_ROUNDS} revision rounds allowed. Please contact support for additional changes.`
         },
         { status: 400 }
       )
     }
 
-    if (modificationsUsed >= MAX_MODIFICATIONS_PER_ROUND) {
-      // Check if we can move to next round
-      if (currentRound >= MAX_ROUNDS) {
+    if (modificationsUsed >= REVISION_CONFIG.MAX_MODIFICATIONS_PER_ROUND) {
+      if (currentRound >= REVISION_CONFIG.MAX_ROUNDS) {
         return NextResponse.json(
           {
-            error: `You have used all ${MAX_MODIFICATIONS_PER_ROUND} modifications for both rounds. Please contact support for additional changes.`
+            error: `You have used all ${REVISION_CONFIG.MAX_MODIFICATIONS_PER_ROUND} modifications for both rounds. Please contact support for additional changes.`
           },
           { status: 400 }
         )
       }
-      // Move to next round automatically handled by admin when they post new code
       return NextResponse.json(
         {
-          error: `You have used all ${MAX_MODIFICATIONS_PER_ROUND} modifications for round ${currentRound}. Wait for the updated preview before requesting more changes.`
+          error: `You have used all ${REVISION_CONFIG.MAX_MODIFICATIONS_PER_ROUND} modifications for round ${currentRound}. Wait for the updated preview before requesting more changes.`
         },
         { status: 400 }
       )
     }
 
     // Create revision request
-    const { data: revision, error: insertError } = await supabase
+    const { data: revisionData, error: insertError } = await supabase
       .from('revision_requests')
       .insert({
         client_id: clientId,
         round_number: currentRound,
-        modification_type: modificationType as ModificationType,
+        modification_type: modificationType,
         description,
         status: 'pending'
       } as never)
@@ -87,12 +93,17 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (insertError) {
-      console.error('Insert error:', insertError)
+      revisionLogger.error('Failed to insert revision', {
+        clientId,
+        error: insertError.message
+      })
       return NextResponse.json(
         { error: 'Failed to submit revision request' },
         { status: 500 }
       )
     }
+
+    const revision = revisionData as RevisionRequest
 
     // Update client modification count
     const newModificationsUsed = modificationsUsed + 1
@@ -105,19 +116,29 @@ export async function POST(request: NextRequest) {
       } as never)
       .eq('id', clientId)
 
+    revisionLogger.info('Revision submitted', {
+      clientId,
+      revisionId: revision.id,
+      round: currentRound,
+      modificationsUsed: newModificationsUsed
+    })
+
     return NextResponse.json({
       success: true,
       revision,
       stats: {
         round: currentRound,
         modificationsUsed: newModificationsUsed,
-        modificationsRemaining: MAX_MODIFICATIONS_PER_ROUND - newModificationsUsed,
-        maxRounds: MAX_ROUNDS,
-        maxModificationsPerRound: MAX_MODIFICATIONS_PER_ROUND
+        modificationsRemaining:
+          REVISION_CONFIG.MAX_MODIFICATIONS_PER_ROUND - newModificationsUsed,
+        maxRounds: REVISION_CONFIG.MAX_ROUNDS,
+        maxModificationsPerRound: REVISION_CONFIG.MAX_MODIFICATIONS_PER_ROUND
       }
     })
   } catch (error) {
-    console.error('Revision error:', error)
+    revisionLogger.error('Revision error', {
+      error: error instanceof Error ? error.message : String(error)
+    })
     return NextResponse.json(
       { error: 'Failed to submit revision' },
       { status: 500 }
@@ -141,11 +162,13 @@ export async function GET(request: NextRequest) {
     const supabase = createAdminClient()
 
     // Get client stats
-    const { data: client } = await supabase
+    const { data: clientData } = await supabase
       .from('clients')
       .select('revision_round, revision_modifications_used')
       .eq('id', clientId)
       .single()
+
+    const client = clientData as Pick<Client, 'revision_round' | 'revision_modifications_used'> | null
 
     // Get all revisions
     const { data: revisions, error } = await supabase
@@ -155,29 +178,34 @@ export async function GET(request: NextRequest) {
       .order('created_at', { ascending: false })
 
     if (error) {
-      console.error('Fetch error:', error)
+      revisionLogger.error('Failed to fetch revisions', {
+        clientId,
+        error: error.message
+      })
       return NextResponse.json(
         { error: 'Failed to fetch revisions' },
         { status: 500 }
       )
     }
 
-    const clientData = client as { revision_round: number | null; revision_modifications_used: number | null } | null
-    const currentRound = clientData?.revision_round || 1
-    const modificationsUsed = clientData?.revision_modifications_used || 0
+    const currentRound = client?.revision_round || 1
+    const modificationsUsed = client?.revision_modifications_used || 0
 
     return NextResponse.json({
       revisions: revisions || [],
       stats: {
         round: currentRound,
         modificationsUsed,
-        modificationsRemaining: MAX_MODIFICATIONS_PER_ROUND - modificationsUsed,
-        maxRounds: MAX_ROUNDS,
-        maxModificationsPerRound: MAX_MODIFICATIONS_PER_ROUND
+        modificationsRemaining:
+          REVISION_CONFIG.MAX_MODIFICATIONS_PER_ROUND - modificationsUsed,
+        maxRounds: REVISION_CONFIG.MAX_ROUNDS,
+        maxModificationsPerRound: REVISION_CONFIG.MAX_MODIFICATIONS_PER_ROUND
       }
     })
   } catch (error) {
-    console.error('Get revisions error:', error)
+    revisionLogger.error('Get revisions error', {
+      error: error instanceof Error ? error.message : String(error)
+    })
     return NextResponse.json(
       { error: 'Failed to fetch revisions' },
       { status: 500 }
@@ -188,14 +216,14 @@ export async function GET(request: NextRequest) {
 // PATCH - Admin updates revision status
 export async function PATCH(request: NextRequest) {
   try {
-    const { revisionId, status, adminResponse } = await request.json()
+    const body = await request.json()
+    const validation = validateRequest(revisionPatchSchema, body)
 
-    if (!revisionId || !status) {
-      return NextResponse.json(
-        { error: 'Revision ID and status are required' },
-        { status: 400 }
-      )
+    if (!validation.success) {
+      return NextResponse.json({ error: validation.error }, { status: 400 })
     }
+
+    const { revisionId, status, adminResponse } = validation.data
 
     const supabase = createAdminClient()
 
@@ -216,19 +244,26 @@ export async function PATCH(request: NextRequest) {
       .single()
 
     if (error) {
-      console.error('Update error:', error)
+      revisionLogger.error('Failed to update revision', {
+        revisionId,
+        error: error.message
+      })
       return NextResponse.json(
         { error: 'Failed to update revision' },
         { status: 500 }
       )
     }
 
+    revisionLogger.info('Revision updated', { revisionId, status })
+
     return NextResponse.json({
       success: true,
       revision
     })
   } catch (error) {
-    console.error('Patch revision error:', error)
+    revisionLogger.error('Patch revision error', {
+      error: error instanceof Error ? error.message : String(error)
+    })
     return NextResponse.json(
       { error: 'Failed to update revision' },
       { status: 500 }

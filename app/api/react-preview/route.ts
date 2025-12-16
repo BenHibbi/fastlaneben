@@ -1,38 +1,88 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { createClient as createServerClient } from '@/lib/supabase/server'
+import { isAdminEmail, verifyAdmin } from '@/lib/auth/admin'
 import { sanitizeReactCode } from '@/lib/groq'
 import { sendFirstPreviewEmail, sendSecondPreviewEmail } from '@/lib/email'
+import { reactPreviewPostSchema, validateRequest } from '@/lib/validation'
+import { previewLogger } from '@/lib/logger'
+import type { ReactPreview, Client } from '@/types/database'
 
 export const runtime = 'nodejs'
+
+async function getAuthenticatedUser() {
+  const supabase = await createServerClient()
+  const { data: { user }, error } = await supabase.auth.getUser()
+
+  if (error || !user) {
+    return null
+  }
+
+  return user
+}
+
+// Compile sanitized TSX/JSX into a self-contained IIFE that exposes Preview on window
+async function compilePreviewCode(code: string): Promise<string> {
+  const { transform } = await import('esbuild')
+
+  const wrappedCode = `// Preview bundle (React provided as global)
+${code}
+
+// Expose component for renderer
+const __previewExport = typeof Preview !== 'undefined' ? Preview : (typeof exports !== 'undefined' ? (exports.default || null) : (typeof default !== 'undefined' ? default : null));
+window.__FASTLANE_PREVIEW__ = __previewExport;`
+
+  const result = await transform(wrappedCode, {
+    loader: 'tsx',
+    format: 'iife',
+    globalName: 'PreviewBundle',
+    target: 'es2018',
+    jsxFactory: 'React.createElement',
+    jsxFragment: 'React.Fragment',
+    banner: 'const React = window.React; const ReactDOM = window.ReactDOM;\n',
+    footer: 'window.__FASTLANE_PREVIEW__ = typeof window.__FASTLANE_PREVIEW__ !== "undefined" ? window.__FASTLANE_PREVIEW__ : (typeof PreviewBundle !== "undefined" ? (PreviewBundle.default || PreviewBundle.Preview || null) : null);',
+    minify: true,
+  })
+
+  return result.code
+}
 
 // POST - Admin posts React code (sanitizes with LLM)
 export async function POST(request: NextRequest) {
   try {
-    const { clientId, rawCode, adminId } = await request.json()
-
-    if (!clientId || !rawCode) {
-      return NextResponse.json(
-        { error: 'Client ID and code are required' },
-        { status: 400 }
-      )
+    // Only admins can publish previews
+    let adminUser
+    try {
+      adminUser = await verifyAdmin()
+    } catch (e) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    const body = await request.json()
+    const validation = validateRequest(reactPreviewPostSchema, body)
+
+    if (!validation.success) {
+      return NextResponse.json({ error: validation.error }, { status: 400 })
+    }
+
+    const { clientId, rawCode } = validation.data
     const supabase = createAdminClient()
 
-    // Verify client exists and is in FINAL_ONBOARDING
-    const { data: client, error: clientError } = await supabase
+    // Verify client exists and is in FINAL_ONBOARDING - include email/business_name to avoid N+1
+    const { data: clientData, error: clientError } = await supabase
       .from('clients')
-      .select('id, state')
+      .select('id, state, email, business_name')
       .eq('id', clientId)
       .single()
 
-    if (clientError || !client) {
+    if (clientError || !clientData) {
+      previewLogger.warn('Client not found', { clientId })
       return NextResponse.json({ error: 'Client not found' }, { status: 404 })
     }
 
-    const clientData = client as { id: string; state: string }
+    const client = clientData as Pick<Client, 'id' | 'state' | 'email' | 'business_name'>
 
-    if (clientData.state !== 'FINAL_ONBOARDING') {
+    if (client.state !== 'FINAL_ONBOARDING') {
       return NextResponse.json(
         { error: 'Client is not in final onboarding state' },
         { status: 400 }
@@ -47,10 +97,8 @@ export async function POST(request: NextRequest) {
       .order('version', { ascending: false })
       .limit(1)
 
-    const previews = existingPreviews as { version: number }[] | null
-    const nextVersion = previews?.[0]?.version
-      ? previews[0].version + 1
-      : 1
+    const previews = existingPreviews as Pick<ReactPreview, 'version'>[] | null
+    const nextVersion = previews?.[0]?.version ? previews[0].version + 1 : 1
 
     // Deactivate all previous previews
     await supabase
@@ -61,35 +109,51 @@ export async function POST(request: NextRequest) {
     // Sanitize code with LLM
     const sanitizedCode = await sanitizeReactCode(rawCode)
 
+    // Compile sanitized code server-side (no Babel in client)
+    let compiledCode: string
+    try {
+      compiledCode = await compilePreviewCode(sanitizedCode)
+    } catch (err) {
+      previewLogger.error('Failed to compile preview code', {
+        clientId,
+        error: err instanceof Error ? err.message : String(err)
+      })
+      return NextResponse.json(
+        { error: 'Preview code could not be compiled. Please check the component syntax.' },
+        { status: 400 }
+      )
+    }
+
     // Save new preview
-    const { data: preview, error: insertError } = await supabase
+    const { data: previewData, error: insertError } = await supabase
       .from('react_previews')
       .insert({
         client_id: clientId,
         raw_code: rawCode,
-        sanitized_code: sanitizedCode,
+        sanitized_code: compiledCode,
         version: nextVersion,
         is_active: true,
-        created_by: adminId || null
+        created_by: adminUser.id || null
       } as never)
       .select()
       .single()
 
     if (insertError) {
-      console.error('Insert error:', insertError)
+      previewLogger.error('Failed to insert preview', {
+        clientId,
+        error: insertError.message
+      })
       return NextResponse.json(
         { error: 'Failed to save preview' },
         { status: 500 }
       )
     }
 
-    const previewData = preview as { id: string; version: number; sanitized_code: string }
+    const preview = previewData as ReactPreview
 
     // Update client with preview reference and phase
-    // For version 1: set revision_round to 1
-    // For version 2+: increment revision_round (up to 2)
     const updateData: Record<string, unknown> = {
-      current_react_preview_id: previewData.id,
+      current_react_preview_id: preview.id,
       onboarding_phase: 'react_preview',
       revision_modifications_used: 0,
       updated_at: new Date().toISOString()
@@ -106,32 +170,33 @@ export async function POST(request: NextRequest) {
       .update(updateData as never)
       .eq('id', clientId)
 
-    // Send email notification based on version
-    const { data: clientInfo } = await supabase
-      .from('clients')
-      .select('email, business_name')
-      .eq('id', clientId)
-      .single()
-
-    if (clientInfo) {
-      const typedClient = clientInfo as { email: string; business_name: string | null }
-      if (nextVersion === 1) {
-        await sendFirstPreviewEmail(typedClient.email, typedClient.business_name || 'your business')
-      } else if (nextVersion === 2) {
-        await sendSecondPreviewEmail(typedClient.email, typedClient.business_name || 'your business')
-      }
+    // Send email notification based on version (using data from initial query)
+    if (nextVersion === 1) {
+      await sendFirstPreviewEmail(client.email, client.business_name || 'your business')
+      previewLogger.info('First preview email sent', { clientId })
+    } else if (nextVersion === 2) {
+      await sendSecondPreviewEmail(client.email, client.business_name || 'your business')
+      previewLogger.info('Second preview email sent', { clientId })
     }
+
+    previewLogger.info('Preview created', {
+      clientId,
+      previewId: preview.id,
+      version: nextVersion
+    })
 
     return NextResponse.json({
       success: true,
       preview: {
-        id: previewData.id,
-        version: previewData.version,
-        sanitizedCode: previewData.sanitized_code
+        id: preview.id,
+        version: preview.version,
+        sanitizedCode: preview.sanitized_code
       }
     })
   } catch (error) {
-    console.error('React preview error:', error)
+    previewLogger.error('React preview error', {
+      error: error instanceof Error ? error.message : String(error)
+    })
     return NextResponse.json(
       { error: 'Failed to create preview' },
       { status: 500 }
@@ -146,40 +211,58 @@ export async function GET(request: NextRequest) {
     const clientId = searchParams.get('clientId')
 
     if (!clientId) {
-      return NextResponse.json(
-        { error: 'Client ID is required' },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: 'Client ID is required' }, { status: 400 })
+    }
+
+    const user = await getAuthenticatedUser()
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     const supabase = createAdminClient()
 
-    const { data: preview, error } = await supabase
+    // Verify client ownership or admin
+    const { data: clientRecord } = await supabase
+      .from('clients')
+      .select('id, user_id')
+      .eq('id', clientId)
+      .single()
+
+    if (!clientRecord) {
+      return NextResponse.json({ error: 'Client not found' }, { status: 404 })
+    }
+
+    const record = clientRecord as { id: string; user_id: string | null }
+    const isAdmin = isAdminEmail(user.email)
+    if (!isAdmin && record.user_id !== user.id) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
+    const { data: previewData, error } = await supabase
       .from('react_previews')
-      .select('*')
+      .select('id, version, sanitized_code, created_at')
       .eq('client_id', clientId)
       .eq('is_active', true)
       .single()
 
-    if (error || !preview) {
+    if (error || !previewData) {
       return NextResponse.json({ preview: null })
     }
 
-    const previewData = preview as { id: string; version: number; sanitized_code: string; created_at: string }
-
-    console.log('GET preview - sanitized_code length:', previewData.sanitized_code?.length || 0)
-    console.log('GET preview - first 200 chars:', previewData.sanitized_code?.substring(0, 200))
+    const preview = previewData as Pick<ReactPreview, 'id' | 'version' | 'sanitized_code' | 'created_at'>
 
     return NextResponse.json({
       preview: {
-        id: previewData.id,
-        version: previewData.version,
-        sanitizedCode: previewData.sanitized_code,
-        createdAt: previewData.created_at
+        id: preview.id,
+        version: preview.version,
+        sanitizedCode: preview.sanitized_code,
+        createdAt: preview.created_at
       }
     })
   } catch (error) {
-    console.error('Get preview error:', error)
+    previewLogger.error('Get preview error', {
+      error: error instanceof Error ? error.message : String(error)
+    })
     return NextResponse.json(
       { error: 'Failed to fetch preview' },
       { status: 500 }

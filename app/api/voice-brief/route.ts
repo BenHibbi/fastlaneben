@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { transcribeAudio, analyzeTranscript } from '@/lib/groq'
+import { transcribeAudio } from '@/lib/groq'
+import { voiceBriefUploadSchema, validateRequest } from '@/lib/validation'
+import { voiceBriefLogger } from '@/lib/logger'
+import type { Client, VoiceBrief } from '@/types/database'
 
 export const runtime = 'nodejs'
 
@@ -11,9 +14,15 @@ export async function POST(request: NextRequest) {
     const audioFile = formData.get('audio') as File
     const clientId = formData.get('clientId') as string
 
-    if (!audioFile || !clientId) {
+    // Validate clientId
+    const validation = validateRequest(voiceBriefUploadSchema, { clientId })
+    if (!validation.success) {
+      return NextResponse.json({ error: validation.error }, { status: 400 })
+    }
+
+    if (!audioFile) {
       return NextResponse.json(
-        { error: 'Audio file and client ID are required' },
+        { error: 'Audio file is required' },
         { status: 400 }
       )
     }
@@ -21,19 +30,20 @@ export async function POST(request: NextRequest) {
     const supabase = createAdminClient()
 
     // Verify client exists and is in FINAL_ONBOARDING
-    const { data: client, error: clientError } = await supabase
+    const { data: clientData, error: clientError } = await supabase
       .from('clients')
       .select('id, state, business_name, industry, location')
       .eq('id', clientId)
       .single()
 
-    if (clientError || !client) {
+    if (clientError || !clientData) {
+      voiceBriefLogger.warn('Client not found', { clientId })
       return NextResponse.json({ error: 'Client not found' }, { status: 404 })
     }
 
-    const clientData = client as { id: string; state: string; business_name: string | null; industry: string | null; location: string | null }
+    const client = clientData as Pick<Client, 'id' | 'state' | 'business_name' | 'industry' | 'location'>
 
-    if (clientData.state !== 'FINAL_ONBOARDING') {
+    if (client.state !== 'FINAL_ONBOARDING') {
       return NextResponse.json(
         { error: 'Client is not in final onboarding state' },
         { status: 400 }
@@ -52,7 +62,10 @@ export async function POST(request: NextRequest) {
       })
 
     if (uploadError) {
-      console.error('Upload error:', uploadError)
+      voiceBriefLogger.error('Upload failed', {
+        clientId,
+        error: uploadError.message
+      })
       return NextResponse.json(
         { error: 'Failed to upload audio' },
         { status: 500 }
@@ -71,7 +84,7 @@ export async function POST(request: NextRequest) {
     )
 
     // Save voice brief record
-    const { data: voiceBrief, error: insertError } = await supabase
+    const { data: voiceBriefData, error: insertError } = await supabase
       .from('voice_briefs')
       .insert({
         client_id: clientId,
@@ -83,12 +96,17 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (insertError) {
-      console.error('Insert error:', insertError)
+      voiceBriefLogger.error('Insert failed', {
+        clientId,
+        error: insertError.message
+      })
       return NextResponse.json(
         { error: 'Failed to save voice brief' },
         { status: 500 }
       )
     }
+
+    const voiceBrief = voiceBriefData as VoiceBrief
 
     // Update client status
     await supabase
@@ -99,13 +117,21 @@ export async function POST(request: NextRequest) {
       } as never)
       .eq('id', clientId)
 
+    voiceBriefLogger.info('Voice brief created', {
+      clientId,
+      voiceBriefId: voiceBrief.id,
+      duration
+    })
+
     return NextResponse.json({
       success: true,
       voiceBrief,
       transcript
     })
   } catch (error) {
-    console.error('Voice brief error:', error)
+    voiceBriefLogger.error('Voice brief error', {
+      error: error instanceof Error ? error.message : String(error)
+    })
     return NextResponse.json(
       { error: 'Failed to process voice brief' },
       { status: 500 }

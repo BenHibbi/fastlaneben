@@ -17,6 +17,7 @@ import { FinalCTASection } from '@/components/homepage/FinalCTASection'
 import { StatusBar } from '@/components/homepage/StatusBar'
 import { Footer } from '@/components/homepage/Footer'
 import { CookieBanner } from '@/components/homepage/CookieBanner'
+import { Fastbot } from '@/components/Fastbot'
 
 export default function FastlaneHomepage() {
   const [scrolled, setScrolled] = useState(false)
@@ -97,6 +98,8 @@ export default function FastlaneHomepage() {
       <StatusBar />
 
       <Footer />
+
+      <Fastbot />
 
       <CookieBanner
         show={showCookies}

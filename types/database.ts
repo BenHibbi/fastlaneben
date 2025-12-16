@@ -35,6 +35,9 @@ export type ModificationType =
 // Revision request status
 export type RevisionStatus = 'pending' | 'in_progress' | 'completed' | 'rejected'
 
+// Add-on status
+export type AddonStatus = 'active' | 'canceled'
+
 export type Json =
   | string
   | number
@@ -339,6 +342,64 @@ export interface Database {
           resolved_at?: string | null
         }
       }
+      webhook_events: {
+        Row: {
+          id: string
+          event_id: string
+          event_type: string
+          processed_at: string
+          payload: Json
+        }
+        Insert: {
+          id?: string
+          event_id: string
+          event_type: string
+          processed_at?: string
+          payload?: Json
+        }
+        Update: {
+          id?: string
+          event_id?: string
+          event_type?: string
+          processed_at?: string
+          payload?: Json
+        }
+      }
+      client_addons: {
+        Row: {
+          id: string
+          client_id: string
+          addon_id: string
+          addon_name: string
+          price_monthly: number
+          stripe_subscription_item_id: string | null
+          status: AddonStatus
+          purchased_at: string
+          canceled_at: string | null
+        }
+        Insert: {
+          id?: string
+          client_id: string
+          addon_id: string
+          addon_name: string
+          price_monthly: number
+          stripe_subscription_item_id?: string | null
+          status?: AddonStatus
+          purchased_at?: string
+          canceled_at?: string | null
+        }
+        Update: {
+          id?: string
+          client_id?: string
+          addon_id?: string
+          addon_name?: string
+          price_monthly?: number
+          stripe_subscription_item_id?: string | null
+          status?: AddonStatus
+          purchased_at?: string
+          canceled_at?: string | null
+        }
+      }
     }
     Views: Record<string, never>
     Functions: Record<string, never>
@@ -362,6 +423,8 @@ export type ReactPreview = Database['public']['Tables']['react_previews']['Row']
 export type ReactPreviewInsert = Database['public']['Tables']['react_previews']['Insert']
 export type RevisionRequest = Database['public']['Tables']['revision_requests']['Row']
 export type RevisionRequestInsert = Database['public']['Tables']['revision_requests']['Insert']
+export type ClientAddon = Database['public']['Tables']['client_addons']['Row']
+export type ClientAddonInsert = Database['public']['Tables']['client_addons']['Insert']
 
 // Modification types for revision dropdown
 export const MODIFICATION_TYPES: { value: ModificationType; label: string }[] = [

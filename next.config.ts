@@ -8,6 +8,8 @@ const nextConfig: NextConfig = {
       bodySizeLimit: '10mb',
     },
   },
+  // Mark esbuild as external to avoid webpack bundling issues
+  serverExternalPackages: ['esbuild'],
 }
 
 export default nextConfig

@@ -15,6 +15,8 @@ import {
 } from 'lucide-react'
 import type { Client, RevisionRequest, ModificationType } from '@/types/database'
 import { MODIFICATION_TYPES } from '@/types/database'
+import { AddOnsMenu, ADD_ONS } from './AddOnsMenu'
+import { AddOnsPaywall } from './AddOnsPaywall'
 
 interface RevisionRequestFormProps {
   client: Client
@@ -50,12 +52,81 @@ export function RevisionRequestForm({
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [showConfirmation, setShowConfirmation] = useState(false)
+  const [showPaywall, setShowPaywall] = useState(false)
+  const [paywallLoading, setPaywallLoading] = useState(false)
 
   // Pending changes (local list before submission)
   const [pendingChanges, setPendingChanges] = useState<PendingChange[]>([])
 
+  // Selected add-ons
+  const [selectedAddOns, setSelectedAddOns] = useState<string[]>([])
+
   const [modificationType, setModificationType] = useState<ModificationType | ''>('')
   const [description, setDescription] = useState('')
+
+  // Calculate add-ons total
+  const addOnsTotal = ADD_ONS.flatMap(t => t.items)
+    .filter(item => selectedAddOns.includes(item.id))
+    .reduce((sum, item) => sum + item.price, 0)
+
+  const handleToggleAddOn = (addOnId: string) => {
+    setSelectedAddOns(prev =>
+      prev.includes(addOnId)
+        ? prev.filter(id => id !== addOnId)
+        : [...prev, addOnId]
+    )
+  }
+
+  // Handle add-ons payment confirmation
+  const handlePaywallConfirm = async () => {
+    setPaywallLoading(true)
+    setError('')
+
+    try {
+      // 1. Accept add-on terms
+      const termsRes = await fetch('/api/clients/accept-addon-terms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId: client.id })
+      })
+
+      if (!termsRes.ok) {
+        throw new Error('Failed to accept terms')
+      }
+
+      // 2. Create checkout session for add-ons
+      const checkoutRes = await fetch('/api/stripe/addon-checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientId: client.id,
+          addons: selectedAddOns,
+          pendingRevisions: pendingChanges.map(c => ({
+            modificationType: c.modificationType,
+            description: c.description
+          }))
+        })
+      })
+
+      const checkoutData = await checkoutRes.json()
+
+      if (checkoutData.error) {
+        throw new Error(checkoutData.error)
+      }
+
+      // 3. Redirect to Stripe Checkout (or placeholder behavior for now)
+      if (checkoutData.url) {
+        window.location.href = checkoutData.url
+      } else {
+        // Placeholder: Just submit revisions without actual payment for now
+        setShowPaywall(false)
+        await handleSubmitAll()
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to process payment')
+      setPaywallLoading(false)
+    }
+  }
 
   useEffect(() => {
     fetchRevisions()
@@ -126,16 +197,18 @@ export function RevisionRequestForm({
     setShowConfirmation(false)
 
     try {
-      // Submit all pending changes
+      // Submit all pending changes (include add-ons in first request only)
       const results = await Promise.all(
-        pendingChanges.map((change) =>
+        pendingChanges.map((change, index) =>
           fetch('/api/revisions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               clientId: client.id,
               modificationType: change.modificationType,
-              description: change.description
+              description: change.description,
+              // Include add-ons only in the first request to avoid duplicates
+              ...(index === 0 && selectedAddOns.length > 0 && { addOns: selectedAddOns })
             })
           }).then((res) => res.json())
         )
@@ -147,9 +220,14 @@ export function RevisionRequestForm({
         throw new Error(failedResults[0].error || 'Failed to submit some changes')
       }
 
-      // Clear pending changes
+      // Clear pending changes and add-ons
       setPendingChanges([])
-      setSuccess(`${results.length} change${results.length > 1 ? 's' : ''} submitted successfully!`)
+      setSelectedAddOns([])
+
+      const addOnsMessage = selectedAddOns.length > 0
+        ? ` + ${selectedAddOns.length} add-on${selectedAddOns.length > 1 ? 's' : ''} (+$${addOnsTotal}/mo)`
+        : ''
+      setSuccess(`${results.length} change${results.length > 1 ? 's' : ''}${addOnsMessage} submitted successfully!`)
 
       // Update stats and list from the last result
       const lastResult = results[results.length - 1]
@@ -256,6 +334,12 @@ export function RevisionRequestForm({
         </div>
       )}
 
+      {/* Add-Ons Menu */}
+      <AddOnsMenu
+        selectedAddOns={selectedAddOns}
+        onToggleAddOn={handleToggleAddOn}
+      />
+
       {/* Form */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
         <h3 className="font-medium text-slate-900 mb-4">Add a Change</h3>
@@ -358,14 +442,43 @@ export function RevisionRequestForm({
           )}
 
           <button
-            onClick={() => setShowConfirmation(true)}
+            onClick={() => {
+              // If add-ons are selected, show paywall first
+              if (selectedAddOns.length > 0) {
+                setShowPaywall(true)
+              } else {
+                setShowConfirmation(true)
+              }
+            }}
             disabled={submitting}
-            className="w-full py-3 px-4 bg-slate-900 text-white rounded-xl font-medium hover:bg-slate-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            className={`w-full py-3 px-4 rounded-xl font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 ${
+              selectedAddOns.length > 0
+                ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white hover:from-violet-700 hover:to-indigo-700'
+                : 'bg-slate-900 text-white hover:bg-slate-800'
+            }`}
           >
             <Send className="w-5 h-5" />
-            Submit Request ({pendingChanges.length} change{pendingChanges.length > 1 ? 's' : ''})
+            {selectedAddOns.length > 0 ? (
+              <>Submit + Pay Add-Ons (+${addOnsTotal}/mo)</>
+            ) : (
+              <>Submit Request ({pendingChanges.length} change{pendingChanges.length > 1 ? 's' : ''})</>
+            )}
           </button>
         </div>
+      )}
+
+      {/* Add-Ons Paywall */}
+      {showPaywall && (
+        <AddOnsPaywall
+          selectedAddOns={selectedAddOns}
+          totalPrice={addOnsTotal}
+          onConfirm={handlePaywallConfirm}
+          onCancel={() => {
+            setShowPaywall(false)
+            setPaywallLoading(false)
+          }}
+          loading={paywallLoading}
+        />
       )}
 
       {/* Confirmation Modal */}
@@ -379,14 +492,21 @@ export function RevisionRequestForm({
               <h3 className="font-medium text-slate-900 text-lg">Confirm Submission</h3>
             </div>
 
-            <p className="text-slate-600 mb-6">
-              Are you sure you want to submit {pendingChanges.length} change{pendingChanges.length > 1 ? 's' : ''}?
+            <div className="text-slate-600 mb-6">
+              <p>
+                Are you sure you want to submit {pendingChanges.length} change{pendingChanges.length > 1 ? 's' : ''}?
+              </p>
+              {selectedAddOns.length > 0 && (
+                <p className="mt-2 p-3 bg-violet-50 rounded-lg text-violet-700">
+                  ✨ Includes {selectedAddOns.length} add-on{selectedAddOns.length > 1 ? 's' : ''}: <strong>+${addOnsTotal}/mo</strong>
+                </p>
+              )}
               {stats && stats.round < stats.maxRounds && (
                 <span className="block mt-2 text-amber-600 font-medium">
                   This will move you to round {stats.round + 1} of {stats.maxRounds}.
                 </span>
               )}
-            </p>
+            </div>
 
             <div className="flex gap-3">
               <button

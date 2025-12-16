@@ -1,53 +1,56 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { analyzeTranscript } from '@/lib/groq'
+import { voiceBriefAnalyzeSchema, validateRequest } from '@/lib/validation'
+import { voiceBriefLogger } from '@/lib/logger'
+import type { Client, VoiceBrief } from '@/types/database'
 
 export const runtime = 'nodejs'
 
 // POST - Analyze transcript and generate creative brief
 export async function POST(request: NextRequest) {
   try {
-    const { clientId, voiceBriefId } = await request.json()
+    const body = await request.json()
+    const validation = validateRequest(voiceBriefAnalyzeSchema, body)
 
-    if (!clientId || !voiceBriefId) {
-      return NextResponse.json(
-        { error: 'Client ID and voice brief ID are required' },
-        { status: 400 }
-      )
+    if (!validation.success) {
+      return NextResponse.json({ error: validation.error }, { status: 400 })
     }
 
+    const { clientId, voiceBriefId } = validation.data
     const supabase = createAdminClient()
 
     // Get client and voice brief
-    const { data: client, error: clientError } = await supabase
+    const { data: clientData, error: clientError } = await supabase
       .from('clients')
       .select('id, business_name, industry, location')
       .eq('id', clientId)
       .single()
 
-    if (clientError || !client) {
+    if (clientError || !clientData) {
+      voiceBriefLogger.warn('Client not found for analysis', { clientId })
       return NextResponse.json({ error: 'Client not found' }, { status: 404 })
     }
 
-    const clientData = client as { id: string; business_name: string | null; industry: string | null; location: string | null }
+    const client = clientData as Pick<Client, 'id' | 'business_name' | 'industry' | 'location'>
 
-    const { data: voiceBrief, error: briefError } = await supabase
+    const { data: voiceBriefData, error: briefError } = await supabase
       .from('voice_briefs')
-      .select('*')
+      .select('id, transcript, audio_url')
       .eq('id', voiceBriefId)
       .eq('client_id', clientId)
       .single()
 
-    if (briefError || !voiceBrief) {
+    if (briefError || !voiceBriefData) {
       return NextResponse.json(
         { error: 'Voice brief not found' },
         { status: 404 }
       )
     }
 
-    const briefData = voiceBrief as { id: string; transcript: string | null; audio_url: string | null }
+    const voiceBrief = voiceBriefData as Pick<VoiceBrief, 'id' | 'transcript' | 'audio_url'>
 
-    if (!briefData.transcript) {
+    if (!voiceBrief.transcript) {
       return NextResponse.json(
         { error: 'No transcript available to analyze' },
         { status: 400 }
@@ -55,10 +58,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Analyze with GPT-OSS-120B
-    const structuredBrief = await analyzeTranscript(briefData.transcript, {
-      business_name: clientData.business_name,
-      industry: clientData.industry,
-      location: clientData.location
+    const structuredBrief = await analyzeTranscript(voiceBrief.transcript, {
+      business_name: client.business_name,
+      industry: client.industry,
+      location: client.location
     })
 
     // Update voice brief with structured brief and clear transcript/audio to save storage
@@ -72,7 +75,10 @@ export async function POST(request: NextRequest) {
       .eq('id', voiceBriefId)
 
     if (updateError) {
-      console.error('Update error:', updateError)
+      voiceBriefLogger.error('Failed to save structured brief', {
+        voiceBriefId,
+        error: updateError.message
+      })
       return NextResponse.json(
         { error: 'Failed to save structured brief' },
         { status: 500 }
@@ -80,17 +86,18 @@ export async function POST(request: NextRequest) {
     }
 
     // Delete audio file from storage if it exists
-    if (briefData.audio_url) {
+    if (voiceBrief.audio_url) {
       try {
-        // Extract path from URL (format: .../client-files/clientId/voice-brief-xxx.webm)
-        const urlParts = briefData.audio_url.split('/client-files/')
+        const urlParts = voiceBrief.audio_url.split('/client-files/')
         if (urlParts[1]) {
-          const filePath = urlParts[1].split('?')[0] // Remove query params if any
+          const filePath = urlParts[1].split('?')[0]
           await supabase.storage.from('client-files').remove([filePath])
         }
       } catch (deleteError) {
-        console.warn('Failed to delete audio file:', deleteError)
-        // Non-blocking - continue even if delete fails
+        voiceBriefLogger.warn('Failed to delete audio file', {
+          voiceBriefId,
+          error: deleteError instanceof Error ? deleteError.message : String(deleteError)
+        })
       }
     }
 
@@ -103,12 +110,16 @@ export async function POST(request: NextRequest) {
       } as never)
       .eq('id', clientId)
 
+    voiceBriefLogger.info('Brief generated', { clientId, voiceBriefId })
+
     return NextResponse.json({
       success: true,
       structuredBrief
     })
   } catch (error) {
-    console.error('Analyze error:', error)
+    voiceBriefLogger.error('Analyze error', {
+      error: error instanceof Error ? error.message : String(error)
+    })
     return NextResponse.json(
       { error: 'Failed to analyze transcript' },
       { status: 500 }

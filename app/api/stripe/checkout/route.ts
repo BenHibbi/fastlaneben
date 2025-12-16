@@ -1,19 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getStripe, PRICES, Currency } from '@/lib/stripe'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { checkoutSchema, validateRequest } from '@/lib/validation'
+import { createLogger } from '@/lib/logger'
 import type { Client } from '@/types/database'
+
+const checkoutLogger = createLogger('stripe-checkout')
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { clientId, currency = 'USD' } = body
+    const validation = validateRequest(checkoutSchema, body)
 
-    if (!clientId) {
-      return NextResponse.json(
-        { error: 'Client ID is required' },
-        { status: 400 }
-      )
+    if (!validation.success) {
+      return NextResponse.json({ error: validation.error }, { status: 400 })
     }
+
+    const { clientId } = validation.data
+    const currency = (body.currency as Currency) || 'USD'
 
     // Get client from database
     const supabase = createAdminClient()
@@ -24,6 +28,7 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (clientError || !data) {
+      checkoutLogger.warn('Client not found', { clientId })
       return NextResponse.json(
         { error: 'Client not found' },
         { status: 404 }
@@ -49,7 +54,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Get the correct price ID for the currency
-    const priceId = PRICES[currency as Currency] || PRICES.USD
+    const priceId = PRICES[currency] || PRICES.USD
 
     // Create or get Stripe customer
     let customerId = client.stripe_customer_id
@@ -60,8 +65,8 @@ export async function POST(request: NextRequest) {
         name: client.business_name || undefined,
         metadata: {
           client_id: client.id,
-          business_name: client.business_name || '',
-        },
+          business_name: client.business_name || ''
+        }
       })
       customerId = customer.id
 
@@ -82,31 +87,38 @@ export async function POST(request: NextRequest) {
       line_items: [
         {
           price: priceId,
-          quantity: 1,
-        },
+          quantity: 1
+        }
       ],
       metadata: {
         client_id: client.id,
-        business_name: client.business_name || '',
+        business_name: client.business_name || ''
       },
       subscription_data: {
         metadata: {
           client_id: client.id,
-          business_name: client.business_name || '',
-        },
+          business_name: client.business_name || ''
+        }
       },
       success_url: `${baseUrl}/client/final?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${baseUrl}/client`,
       automatic_tax: {
-        enabled: true,
+        enabled: true
       },
       billing_address_collection: 'required',
-      allow_promotion_codes: true,
+      allow_promotion_codes: true
+    })
+
+    checkoutLogger.info('Checkout session created', {
+      clientId,
+      sessionId: session.id
     })
 
     return NextResponse.json({ sessionId: session.id, url: session.url })
   } catch (error) {
-    console.error('Stripe checkout error:', error)
+    checkoutLogger.error('Stripe checkout error', {
+      error: error instanceof Error ? error.message : String(error)
+    })
     return NextResponse.json(
       { error: 'Failed to create checkout session' },
       { status: 500 }

@@ -1,10 +1,9 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Monitor, Smartphone, Loader2, AlertCircle, ExternalLink } from 'lucide-react'
+import { Monitor, Smartphone, Loader2 } from 'lucide-react'
+import { PREVIEW_CONFIG, REVISION_CONFIG } from '@/lib/config'
 import type { Client } from '@/types/database'
-
-const DESKTOP_HEIGHT = 900
 
 interface ReactPreviewRendererProps {
   client: Client
@@ -36,7 +35,7 @@ export function ReactPreviewRenderer({
   useEffect(() => {
     const updateWidth = () => {
       if (containerRef.current) {
-        setContainerWidth(containerRef.current.offsetWidth - 32) // minus padding
+        setContainerWidth(containerRef.current.offsetWidth - 32)
       }
     }
     updateWidth()
@@ -49,14 +48,10 @@ export function ReactPreviewRenderer({
       const res = await fetch(`/api/react-preview?clientId=${client.id}`)
       const data = await res.json()
 
-      console.log('Preview API response:', data)
-
       if (data.preview) {
-        console.log('Preview sanitizedCode length:', data.preview.sanitizedCode?.length || 0)
         setPreview(data.preview)
       }
     } catch (err) {
-      console.error('Failed to fetch preview:', err)
       setError('Failed to load preview')
     } finally {
       setLoading(false)
@@ -92,38 +87,30 @@ export function ReactPreviewRenderer({
     )
   }
 
-  // Clean up code that might have slipped through sanitization
-  const cleanCode = (code: string) => {
-    return code
-      // Remove any remaining import/export statements
-      .replace(/^import\s+.*?;?\s*$/gm, '')
-      .replace(/^export\s+(default\s+)?/gm, '')
-      .replace(/exports\.\w+\s*=\s*/g, '')
-      .replace(/module\.exports\s*=\s*/g, '')
-      // Remove "use client" directive
-      .replace(/['"]use client['"];?\s*/g, '')
-      // Remove TypeScript type annotations that might remain
-      .replace(/:\s*(React\.)?FC\s*(<[^>]*>)?/g, '')
-      .replace(/:\s*\w+(\[\])?\s*(?=[,\)\=])/g, '')
-      // Remove markdown code blocks if present
-      .replace(/```(jsx?|tsx?|javascript|typescript)?\n?/g, '')
-      .replace(/```\s*$/g, '')
-      .trim()
-  }
+  const viewportWidth = viewport === 'desktop' ? containerWidth || 1440 : PREVIEW_CONFIG.MOBILE_WIDTH
+  const previewScript = preview.sanitizedCode
 
-  const cleanedCode = cleanCode(preview.sanitizedCode)
-
-  // Create the HTML content for the iframe
+  // Create the HTML content for the iframe with CSP and precompiled bundle
   const iframeContent = `
     <!DOCTYPE html>
     <html>
       <head>
         <meta charset="UTF-8">
-        <meta name="viewport" content="width=${viewport === 'desktop' ? containerWidth || 1440 : 375}, initial-scale=1.0">
-        <script src="https://cdn.tailwindcss.com"></script>
-        <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-        <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-        <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+        <meta name="viewport" content="width=${viewportWidth}, initial-scale=1.0">
+        <meta http-equiv="Content-Security-Policy" content="
+          default-src 'none';
+          script-src 'unsafe-inline' https://unpkg.com/react@19/umd/react.production.min.js https://unpkg.com/react-dom@19/umd/react-dom.production.min.js;
+          style-src 'unsafe-inline';
+          img-src data: https:;
+          font-src https:;
+          connect-src 'none';
+          frame-src 'none';
+          object-src 'none';
+          base-uri 'none';
+          form-action 'none';
+        ">
+        <script src="https://unpkg.com/react@19/umd/react.production.min.js"></script>
+        <script src="https://unpkg.com/react-dom@19/umd/react-dom.production.min.js"></script>
         <style>
           body { margin: 0; font-family: system-ui, sans-serif; }
           #root { min-height: 100vh; }
@@ -131,24 +118,29 @@ export function ReactPreviewRenderer({
       </head>
       <body>
         <div id="root"></div>
-        <script type="text/babel">
-          // React hooks shortcuts
-          const { useState, useEffect, useRef, useCallback, useMemo } = React;
-
-          ${cleanedCode}
-
-          // Try to render the Preview component
-          try {
-            const root = ReactDOM.createRoot(document.getElementById('root'));
-            root.render(<Preview />);
-          } catch (e) {
-            console.error('Preview render error:', e);
-            document.getElementById('root').innerHTML = '<div style="padding: 20px; color: red; font-family: monospace;"><strong>Error rendering preview:</strong><br/>' + e.message + '</div>';
-          }
+        <script>
+${previewScript}
+          (function renderPreview() {
+            const rootEl = document.getElementById('root');
+            const Preview = (window).__FASTLANE_PREVIEW__;
+            if (!Preview) {
+              rootEl.innerHTML = '<div style="padding: 20px; color: red; font-family: monospace;"><strong>Error:</strong> Preview component not found.</div>';
+              return;
+            }
+            try {
+              const root = (window).ReactDOM.createRoot(rootEl);
+              root.render((window).React.createElement(Preview));
+            } catch (e) {
+              const message = e && e.message ? e.message : String(e);
+              rootEl.innerHTML = '<div style="padding: 20px; color: red; font-family: monospace;"><strong>Error rendering preview:</strong><br/>' + message + '</div>';
+            }
+          })();
         </script>
       </body>
     </html>
   `
+
+  const modificationsRemaining = REVISION_CONFIG.MAX_MODIFICATIONS_PER_ROUND - (client.revision_modifications_used || 0)
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
@@ -173,6 +165,7 @@ export function ReactPreviewRenderer({
                 ? 'bg-white text-slate-900 shadow-sm'
                 : 'text-slate-500 hover:text-slate-700'
             }`}
+            aria-label="Desktop view"
           >
             <Monitor className="w-4 h-4" />
           </button>
@@ -183,33 +176,39 @@ export function ReactPreviewRenderer({
                 ? 'bg-white text-slate-900 shadow-sm'
                 : 'text-slate-500 hover:text-slate-700'
             }`}
+            aria-label="Mobile view"
           >
             <Smartphone className="w-4 h-4" />
           </button>
         </div>
       </div>
 
-      {/* Preview iframe - full width for desktop, centered mobile */}
+      {/* Preview iframe with strict sandbox */}
       <div ref={containerRef} className="bg-slate-100 p-4 overflow-hidden">
         {viewport === 'desktop' ? (
           <div className="bg-white shadow-lg rounded-lg overflow-hidden">
             <iframe
               srcDoc={iframeContent}
               className="w-full border-0"
-              style={{ height: DESKTOP_HEIGHT }}
+              style={{ height: PREVIEW_CONFIG.DESKTOP_HEIGHT }}
               sandbox="allow-scripts"
               title="Website Preview"
+              referrerPolicy="no-referrer"
             />
           </div>
         ) : (
           <div className="flex justify-center">
-            <div className="bg-white shadow-lg rounded-lg overflow-hidden w-[375px]">
+            <div
+              className="bg-white shadow-lg rounded-lg overflow-hidden"
+              style={{ width: PREVIEW_CONFIG.MOBILE_WIDTH }}
+            >
               <iframe
                 srcDoc={iframeContent}
                 className="w-full border-0"
-                style={{ height: '667px' }}
+                style={{ height: PREVIEW_CONFIG.MOBILE_HEIGHT }}
                 sandbox="allow-scripts"
                 title="Website Preview"
+                referrerPolicy="no-referrer"
               />
             </div>
           </div>
@@ -222,20 +221,21 @@ export function ReactPreviewRenderer({
           <div className="text-sm">
             <span className="text-slate-500">Round</span>
             <span className="ml-1 font-medium text-slate-900">
-              {client.revision_round || 1} of 2
+              {client.revision_round || 1} of {REVISION_CONFIG.MAX_ROUNDS}
             </span>
           </div>
           <div className="text-sm">
             <span className="text-slate-500">Changes remaining</span>
             <span className="ml-1 font-medium text-slate-900">
-              {10 - (client.revision_modifications_used || 0)} of 10
+              {modificationsRemaining} of {REVISION_CONFIG.MAX_MODIFICATIONS_PER_ROUND}
             </span>
           </div>
         </div>
 
         <button
           onClick={onRequestRevision}
-          className="w-full py-3 px-4 bg-[#C3F53C] text-slate-900 rounded-xl font-medium hover:bg-[#b5e636] transition-colors"
+          disabled={modificationsRemaining <= 0}
+          className="w-full py-3 px-4 bg-[#C3F53C] text-slate-900 rounded-xl font-medium hover:bg-[#b5e636] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           Request Changes
         </button>
