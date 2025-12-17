@@ -164,13 +164,16 @@ export async function sanitizeReactCode(rawCode: string): Promise<SanitizationRe
       }
 
       const response = await groq.chat.completions.create({
-        model: 'openai/gpt-oss-120b', // 65536 output tokens max, faster and cheaper
+        model: 'openai/gpt-oss-20b',
         messages: [
           { role: 'system', content: getSanitizeStrictPrompt() },
           { role: 'user', content: userMessage }
         ],
-        temperature: 0.1,
-        max_completion_tokens: 32768 // gpt-oss-120b supports up to 65536 output tokens
+        temperature: 1,
+        max_completion_tokens: 32768,
+        top_p: 1,
+        // @ts-expect-error - reasoning_effort not in types yet
+        reasoning_effort: 'low'
       })
 
       const llmOutput = response.choices[0]?.message?.content
