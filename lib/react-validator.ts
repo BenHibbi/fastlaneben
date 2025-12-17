@@ -367,3 +367,79 @@ export function looksLikeReactCode(code: string): boolean {
 
   return hasComponent && hasJSX && hasReturn
 }
+
+/**
+ * Minimal validation result for LLM output
+ * Only checks for critical errors that would break compilation
+ */
+export interface MinimalValidationResult {
+  valid: boolean
+  hasCriticalErrors: boolean
+  errors: string[]
+  code: string // Cleaned code (markdown stripped)
+}
+
+/**
+ * Minimal validation - only checks for critical errors
+ * Trusts the LLM to do most of the work, only catches:
+ * - Dangerous code (eval, new Function, document.write)
+ * - Unbalanced braces
+ * - Missing Preview component
+ * - Empty code
+ *
+ * Does NOT block on:
+ * - Residual imports/exports (esbuild handles them)
+ * - TypeScript syntax (esbuild handles it)
+ */
+export function validateMinimal(code: string): MinimalValidationResult {
+  const errors: string[] = []
+  let cleanedCode = code
+
+  // Strip markdown wrappers if present
+  const markdownStart = /^```(?:jsx?|tsx?|javascript|typescript)?\s*\n?/
+  const markdownEnd = /\n?```\s*$/
+  if (markdownStart.test(cleanedCode) || markdownEnd.test(cleanedCode)) {
+    cleanedCode = cleanedCode.replace(markdownStart, '').replace(markdownEnd, '').trim()
+  }
+
+  // 1. Check for dangerous code
+  if (/\beval\s*\(/.test(cleanedCode)) {
+    errors.push('Contains eval() - dangerous code not allowed')
+  }
+  if (/new\s+Function\s*\(/.test(cleanedCode)) {
+    errors.push('Contains new Function() - dangerous code not allowed')
+  }
+  if (/document\.write\s*\(/.test(cleanedCode)) {
+    errors.push('Contains document.write() - dangerous code not allowed')
+  }
+
+  // 2. Check for balanced braces
+  const balance = checkBraceBalance(cleanedCode)
+  if (balance.curly !== 0) {
+    const direction = balance.curly > 0 ? 'missing closing' : 'extra closing'
+    errors.push(`Unbalanced curly braces: ${Math.abs(balance.curly)} ${direction}`)
+  }
+  if (balance.paren !== 0) {
+    const direction = balance.paren > 0 ? 'missing closing' : 'extra closing'
+    errors.push(`Unbalanced parentheses: ${Math.abs(balance.paren)} ${direction}`)
+  }
+
+  // 3. Check for Preview component
+  const hasPreview = /function\s+Preview\s*\(|const\s+Preview\s*=/.test(cleanedCode)
+  if (!hasPreview) {
+    errors.push('No Preview component found - component must be named Preview')
+  }
+
+  // 4. Check code is not empty
+  const strippedCode = cleanedCode.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '').trim()
+  if (strippedCode.length < 50) {
+    errors.push('Code appears to be empty or too short')
+  }
+
+  return {
+    valid: errors.length === 0,
+    hasCriticalErrors: errors.length > 0,
+    errors,
+    code: cleanedCode
+  }
+}

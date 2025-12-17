@@ -144,7 +144,18 @@ export default function AdminClientActions({
       const data = await res.json()
 
       if (!res.ok) {
-        throw new Error(data.error || 'Failed to post preview')
+        // Build detailed error message
+        let errorMsg = data.error || 'Failed to post preview'
+        if (data.details) {
+          errorMsg += `\n\nDétails: ${data.details}`
+        }
+        if (data.attempts) {
+          errorMsg += `\n\nTentatives: ${data.attempts}`
+        }
+        if (data.line !== undefined) {
+          errorMsg += `\n\nLigne: ${data.line}`
+        }
+        throw new Error(errorMsg)
       }
 
       setReactCode('')
@@ -164,8 +175,8 @@ export default function AdminClientActions({
 
       {/* Error display */}
       {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-          {error}
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+          <pre className="text-sm text-red-700 whitespace-pre-wrap font-mono">{error}</pre>
         </div>
       )}
 

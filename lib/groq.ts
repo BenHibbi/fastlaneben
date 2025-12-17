@@ -1,7 +1,7 @@
 import Groq from 'groq-sdk'
 import { readFileSync } from 'fs'
 import { join } from 'path'
-import { validateAndFix, looksLikeReactCode, type ValidationError } from './react-validator'
+import { validateMinimal, looksLikeReactCode } from './react-validator'
 
 // Custom error class for sanitization failures
 export class SanitizationError extends Error {
@@ -132,12 +132,11 @@ export interface SanitizationResult {
 }
 
 // Sanitize React code for safe preview rendering
-// Strategy: Try auto-fix first (fast), only use LLM if auto-fix fails
+// Strategy: Trust the LLM - send raw code directly, validate minimally
 export async function sanitizeReactCode(rawCode: string): Promise<SanitizationResult> {
-  const allFixesApplied: string[] = []
-  const allWarnings: string[] = []
+  const warnings: string[] = []
 
-  // Validate raw code looks like React
+  // Basic check that input looks like React
   if (!looksLikeReactCode(rawCode)) {
     throw new SanitizationError(
       'Input does not appear to be valid React code',
@@ -146,119 +145,67 @@ export async function sanitizeReactCode(rawCode: string): Promise<SanitizationRe
     )
   }
 
-  // STEP 1: Try auto-fix directly on raw code (no LLM needed)
-  console.log('[Sanitization] Step 1: Attempting direct auto-fix')
-  const directFix = validateAndFix(rawCode)
-
-  if (directFix.fixesApplied.length > 0) {
-    allFixesApplied.push(...directFix.fixesApplied.map(f => `[Direct] ${f}`))
-    console.log('[Sanitization] Direct auto-fix applied:', directFix.fixesApplied)
-  }
-
-  if (directFix.warnings.length > 0) {
-    allWarnings.push(...directFix.warnings)
-  }
-
-  if (directFix.valid) {
-    console.log('[Sanitization] SUCCESS via direct auto-fix')
-    return {
-      code: directFix.code,
-      attempts: 0, // 0 means no LLM was needed
-      fixesApplied: allFixesApplied,
-      warnings: allWarnings
-    }
-  }
-
-  // STEP 2: If direct fix failed, try LLM
-  console.log('[Sanitization] Step 2: Direct fix insufficient, trying LLM')
   const groq = getGroqClient()
-  const MAX_LLM_ATTEMPTS = 2
-  let lastCode = directFix.code // Start with partially fixed code
-  let lastErrors: ValidationError[] = directFix.errors
+  const MAX_ATTEMPTS = 2
 
-  for (let attempt = 1; attempt <= MAX_LLM_ATTEMPTS; attempt++) {
-    console.log(`[Sanitization] LLM Attempt ${attempt}/${MAX_LLM_ATTEMPTS}`)
+  console.log('[Sanitization] Sending code to LLM for transformation')
 
-    // Use strict prompt always since we already tried basic auto-fix
-    const prompt = getSanitizeStrictPrompt()
-
-    // Build user message with context
-    const errorSummary = lastErrors.map(e => `- ${e.message}`).join('\n')
-    const userMessage = `The following React code still has issues after auto-fix:\n${errorSummary}\n\nPlease sanitize this code to work in a browser preview (no imports, no exports, component named Preview):\n\n${lastCode}`
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    console.log(`[Sanitization] Attempt ${attempt}/${MAX_ATTEMPTS}`)
 
     try {
+      // Build the user message - on retry, include error feedback
+      let userMessage = rawCode
+      if (attempt > 1 && warnings.length > 0) {
+        userMessage = `ERREURS DE LA TENTATIVE PRÉCÉDENTE:\n${warnings.join('\n')}\n\nCorrige ces erreurs dans le code suivant:\n\n${rawCode}`
+      }
+
       const response = await groq.chat.completions.create({
-        model: 'openai/gpt-oss-120b', // Most capable model on Groq
+        model: 'openai/gpt-oss-120b',
         messages: [
-          { role: 'system', content: prompt },
+          { role: 'system', content: getSanitizeStrictPrompt() },
           { role: 'user', content: userMessage }
         ],
         temperature: 0.1,
-        max_tokens: 32768 // Large output for long components
+        max_tokens: 50000 // Large output for long components (400+ lines)
       })
 
       const llmOutput = response.choices[0]?.message?.content
 
       if (!llmOutput || llmOutput.trim().length === 0) {
-        console.log(`[Sanitization] LLM Attempt ${attempt}: Empty response`)
-        lastErrors = [{ type: 'syntax', message: 'LLM returned empty response', fixable: false }]
+        console.log(`[Sanitization] Attempt ${attempt}: Empty response from LLM`)
+        warnings.push('LLM returned empty response')
         continue
       }
 
-      // Validate and auto-fix the LLM output
-      const validation = validateAndFix(llmOutput)
-
-      if (validation.fixesApplied.length > 0) {
-        allFixesApplied.push(...validation.fixesApplied.map(f => `[LLM ${attempt}] ${f}`))
-        console.log(`[Sanitization] LLM Attempt ${attempt}: Applied fixes:`, validation.fixesApplied)
-      }
-
-      if (validation.warnings.length > 0) {
-        allWarnings.push(...validation.warnings)
-      }
+      // Minimal validation - only check critical errors
+      const validation = validateMinimal(llmOutput)
 
       if (validation.valid) {
-        console.log(`[Sanitization] SUCCESS via LLM attempt ${attempt}`)
+        console.log(`[Sanitization] SUCCESS on attempt ${attempt}`)
         return {
-          code: validation.code,
+          code: validation.code, // Use cleaned code (markdown stripped)
           attempts: attempt,
-          fixesApplied: allFixesApplied,
-          warnings: allWarnings
+          fixesApplied: ['LLM transformation'],
+          warnings: []
         }
       }
 
-      // Not valid yet - prepare for retry
-      lastCode = validation.code
-      lastErrors = validation.errors
-      console.log(`[Sanitization] LLM Attempt ${attempt}: Validation failed with ${lastErrors.length} errors`)
+      // Validation failed - store errors for retry
+      console.log(`[Sanitization] Attempt ${attempt} validation failed:`, validation.errors)
+      warnings.length = 0 // Clear previous
+      warnings.push(...validation.errors)
 
     } catch (err) {
-      console.error(`[Sanitization] LLM Attempt ${attempt}: Error:`, err)
-      lastErrors = [{ type: 'syntax', message: `LLM error: ${err instanceof Error ? err.message : 'Unknown'}`, fixable: false }]
+      console.error(`[Sanitization] Attempt ${attempt} error:`, err)
+      warnings.push(`LLM error: ${err instanceof Error ? err.message : 'Unknown error'}`)
     }
   }
 
-  // STEP 3: If LLM also failed, return the best we have if it's "good enough"
-  // "Good enough" = only has non-critical errors (like TypeScript that esbuild can handle)
-  const criticalErrors = lastErrors.filter(e =>
-    e.type === 'syntax' || e.type === 'dangerous'
-  )
-
-  if (criticalErrors.length === 0 && lastCode.length > 100) {
-    console.log('[Sanitization] Returning partially sanitized code (non-critical errors only)')
-    return {
-      code: lastCode,
-      attempts: MAX_LLM_ATTEMPTS,
-      fixesApplied: allFixesApplied,
-      warnings: [...allWarnings, 'Code has minor issues but should work']
-    }
-  }
-
-  // All attempts failed - throw detailed error
-  const errorDetails = lastErrors.map(e => e.message)
+  // All attempts failed
   throw new SanitizationError(
-    `Code sanitization failed after auto-fix and ${MAX_LLM_ATTEMPTS} LLM attempts`,
-    errorDetails,
-    MAX_LLM_ATTEMPTS
+    `Code sanitization failed after ${MAX_ATTEMPTS} attempts`,
+    warnings,
+    MAX_ATTEMPTS
   )
 }
