@@ -8,13 +8,15 @@ export class SanitizationError extends Error {
   public readonly code: string
   public readonly details: string[]
   public readonly attempts: number
+  public readonly debugInfo: string
 
-  constructor(message: string, details: string[], attempts: number) {
+  constructor(message: string, details: string[], attempts: number, debugInfo: string = '') {
     super(message)
     this.name = 'SanitizationError'
     this.code = 'SANITIZATION_FAILED'
     this.details = details
     this.attempts = attempts
+    this.debugInfo = debugInfo
   }
 }
 
@@ -174,7 +176,12 @@ export async function sanitizeReactCode(rawCode: string): Promise<SanitizationRe
       const llmOutput = response.choices[0]?.message?.content
       const finishReason = response.choices[0]?.finish_reason
 
-      console.log(`[Sanitization] Attempt ${attempt}: finish_reason=${finishReason}, output_length=${llmOutput?.length || 0}`)
+      // Store debug info for error reporting
+      const debugParts: string[] = []
+      debugParts.push(`finish_reason=${finishReason}`)
+      debugParts.push(`output_length=${llmOutput?.length || 0}`)
+
+      console.log(`[Sanitization] Attempt ${attempt}: ${debugParts.join(', ')}`)
 
       if (!llmOutput || llmOutput.trim().length === 0) {
         console.log(`[Sanitization] Attempt ${attempt}: Empty response from LLM`)
@@ -189,8 +196,10 @@ export async function sanitizeReactCode(rawCode: string): Promise<SanitizationRe
         continue
       }
 
-      // Log last 200 chars to see if code ends properly
-      console.log(`[Sanitization] Last 200 chars: ${llmOutput.slice(-200)}`)
+      // Store last 300 chars for debug
+      const lastChars = llmOutput.slice(-300)
+      debugParts.push(`last_chars=${lastChars}`)
+      console.log(`[Sanitization] Last 300 chars: ${lastChars}`)
 
       // Minimal validation - only check critical errors
       const validation = validateMinimal(llmOutput)

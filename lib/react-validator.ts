@@ -406,6 +406,11 @@ function checkBraceBalance(code: string): { curly: number; paren: number; bracke
     i++
   }
 
+  // Debug: show what we're counting
+  console.log(`[checkBraceBalance] Cleaned code length: ${cleaned.length}`)
+  console.log(`[checkBraceBalance] Cleaned first 300 chars: ${cleaned.slice(0, 300)}`)
+  console.log(`[checkBraceBalance] Cleaned last 300 chars: ${cleaned.slice(-300)}`)
+
   let curly = 0
   let paren = 0
   let bracket = 0
@@ -484,6 +489,9 @@ export function validateMinimal(code: string): MinimalValidationResult {
 
   // 2. Check for balanced braces
   const balance = checkBraceBalance(cleanedCode)
+  console.log(`[Validator] Brace balance: curly=${balance.curly}, paren=${balance.paren}, bracket=${balance.bracket}`)
+  console.log(`[Validator] Code length: ${cleanedCode.length}, first 200 chars: ${cleanedCode.slice(0, 200)}`)
+  console.log(`[Validator] Last 200 chars: ${cleanedCode.slice(-200)}`)
   if (balance.curly !== 0) {
     const direction = balance.curly > 0 ? 'missing closing' : 'extra closing'
     errors.push(`Unbalanced curly braces: ${Math.abs(balance.curly)} ${direction}`)
