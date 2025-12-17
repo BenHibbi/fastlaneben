@@ -15,7 +15,8 @@ import {
 } from 'lucide-react'
 import type { Client, RevisionRequest, ModificationType } from '@/types/database'
 import { MODIFICATION_TYPES } from '@/types/database'
-import { AddOnsMenu, ADD_ONS } from './AddOnsMenu'
+import { ADD_ONS } from '@/lib/addons'
+import { AddOnsMenu } from './AddOnsMenu'
 import { AddOnsPaywall } from './AddOnsPaywall'
 
 interface RevisionRequestFormProps {
@@ -314,7 +315,7 @@ export function RevisionRequestForm({
             <div>
               <p className="text-slate-400 text-sm">Changes Remaining</p>
               <p className="text-2xl font-bold">
-                {stats.modificationsRemaining}{' '}
+                {Math.max(0, stats.modificationsRemaining - pendingChanges.length)}{' '}
                 <span className="text-sm font-normal text-slate-400">/ {stats.maxModificationsPerRound}</span>
               </p>
             </div>
@@ -326,7 +327,7 @@ export function RevisionRequestForm({
               <div
                 className="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all"
                 style={{
-                  width: `${(stats.modificationsUsed / stats.maxModificationsPerRound) * 100}%`
+                  width: `${((stats.modificationsUsed + pendingChanges.length) / stats.maxModificationsPerRound) * 100}%`
                 }}
               />
             </div>
