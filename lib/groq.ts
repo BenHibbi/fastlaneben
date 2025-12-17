@@ -172,12 +172,25 @@ export async function sanitizeReactCode(rawCode: string): Promise<SanitizationRe
       })
 
       const llmOutput = response.choices[0]?.message?.content
+      const finishReason = response.choices[0]?.finish_reason
+
+      console.log(`[Sanitization] Attempt ${attempt}: finish_reason=${finishReason}, output_length=${llmOutput?.length || 0}`)
 
       if (!llmOutput || llmOutput.trim().length === 0) {
         console.log(`[Sanitization] Attempt ${attempt}: Empty response from LLM`)
         warnings.push('LLM returned empty response')
         continue
       }
+
+      // Check if output was truncated
+      if (finishReason === 'length') {
+        console.log(`[Sanitization] Attempt ${attempt}: Output truncated by token limit!`)
+        warnings.push('LLM output was truncated (token limit reached)')
+        continue
+      }
+
+      // Log last 200 chars to see if code ends properly
+      console.log(`[Sanitization] Last 200 chars: ${llmOutput.slice(-200)}`)
 
       // Minimal validation - only check critical errors
       const validation = validateMinimal(llmOutput)
