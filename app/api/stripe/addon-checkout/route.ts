@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { ADD_ONS } from '@/components/client/AddOnsMenu'
+import { ADD_ONS } from '@/lib/addons'
 
 // Placeholder mapping for Stripe price IDs - to be configured in env
 const ADDON_PRICE_MAP: Record<string, string | undefined> = {
