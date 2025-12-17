@@ -8,9 +8,11 @@ export function DeleteClientButton({ clientId, businessName }: { clientId: strin
   const router = useRouter()
 
   const handleDelete = async () => {
-    if (!confirm(`Delete client "${businessName}"? This cannot be undone.`)) {
-      return
-    }
+    const confirmed = confirm(`Delete client "${businessName}"?`)
+    if (!confirmed) return
+
+    const doubleConfirmed = confirm(`Are you sure? This cannot be undone.`)
+    if (!doubleConfirmed) return
 
     setIsDeleting(true)
     try {
