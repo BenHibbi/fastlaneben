@@ -29,7 +29,7 @@ async function compilePreviewCode(code: string): Promise<string> {
 ${code}
 
 // Expose component for renderer
-const __previewExport = typeof Preview !== 'undefined' ? Preview : (typeof exports !== 'undefined' ? (exports.default || null) : (typeof default !== 'undefined' ? default : null));
+const __previewExport = typeof Preview !== 'undefined' ? Preview : null;
 window.__FASTLANE_PREVIEW__ = __previewExport;`
 
   const result = await transform(wrappedCode, {
