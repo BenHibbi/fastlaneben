@@ -41,13 +41,9 @@ const FORBIDDEN_PATTERNS = {
     /^['"]use client['"];?\s*$/gm,
     /^['"]use server['"];?\s*$/gm,
   ],
-  // TypeScript-specific (only block the most problematic ones)
-  // Note: esbuild handles most TypeScript fine, so we only block interface/type declarations
-  typescript: [
-    /:\s*(React\.FC|FC|FunctionComponent)\s*[<>]/g,
-    /^interface\s+\w+\s*\{/gm, // Only at line start to avoid false positives
-    /^type\s+\w+\s*=\s*/gm, // Only at line start
-  ],
+  // TypeScript-specific - REMOVED because esbuild handles TypeScript fine
+  // We'll just let esbuild deal with it
+  typescript: [],
   // Dangerous code - only the really dangerous stuff
   dangerous: [
     /\beval\s*\(/g,
