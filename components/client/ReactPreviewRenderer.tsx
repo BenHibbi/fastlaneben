@@ -99,7 +99,7 @@ export function ReactPreviewRenderer({
         <meta name="viewport" content="width=${viewportWidth}, initial-scale=1.0">
         <meta http-equiv="Content-Security-Policy" content="
           default-src 'none';
-          script-src 'unsafe-inline' https://unpkg.com/react@19/umd/react.production.min.js https://unpkg.com/react-dom@19/umd/react-dom.production.min.js;
+          script-src 'unsafe-inline' https://unpkg.com;
           style-src 'unsafe-inline';
           img-src data: https:;
           font-src https:;
@@ -109,8 +109,8 @@ export function ReactPreviewRenderer({
           base-uri 'none';
           form-action 'none';
         ">
-        <script src="https://unpkg.com/react@19/umd/react.production.min.js"></script>
-        <script src="https://unpkg.com/react-dom@19/umd/react-dom.production.min.js"></script>
+        <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+        <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
         <style>
           body { margin: 0; font-family: system-ui, sans-serif; }
           #root { min-height: 100vh; }
