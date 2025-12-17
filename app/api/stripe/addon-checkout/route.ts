@@ -87,6 +87,7 @@ export async function POST(req: Request) {
 
     // Create Stripe checkout session
     const stripe = getStripe()
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://fastlanesites.com'
 
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
@@ -101,8 +102,8 @@ export async function POST(req: Request) {
         addon_ids: JSON.stringify(addons),
         pending_revisions: pendingRevisions ? JSON.stringify(pendingRevisions) : ''
       },
-      success_url: `${process.env.NEXT_PUBLIC_APP_URL}/client?addon_success=true`,
-      cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/client`
+      success_url: `${appUrl}/client?addon_success=true`,
+      cancel_url: `${appUrl}/client`
     })
 
     return NextResponse.json({
