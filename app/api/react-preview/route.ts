@@ -39,7 +39,17 @@ window.__FASTLANE_PREVIEW__ = __previewExport;`
     target: 'es2018',
     jsxFactory: 'React.createElement',
     jsxFragment: 'React.Fragment',
-    banner: 'const React = window.React; const ReactDOM = window.ReactDOM;\n',
+    banner: `const React = window.React;
+const ReactDOM = window.ReactDOM;
+const require = function(mod) {
+  if (mod === 'react') return window.React;
+  if (mod === 'react-dom') return window.ReactDOM;
+  console.warn('Module not available:', mod);
+  return {};
+};
+const exports = {};
+const module = { exports: exports };
+`,
     footer: 'window.__FASTLANE_PREVIEW__ = typeof window.__FASTLANE_PREVIEW__ !== "undefined" ? window.__FASTLANE_PREVIEW__ : (typeof PreviewBundle !== "undefined" ? (PreviewBundle.default || PreviewBundle.Preview || null) : null);',
     minify: true,
   })
