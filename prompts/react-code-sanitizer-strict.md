@@ -48,46 +48,71 @@ Le code doit:
 
 Si on te donne CE CODE:
 
-"use client";
-import { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
+import React, { useState, useEffect } from 'react';
+import { Heart, Menu, X, ArrowRight } from 'lucide-react';
 
-interface Props {
-  title: string;
-}
-
-export default function HomePage({ title }: Props) {
-  const [count, setCount] = useState<number>(0);
+const App = () => {
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
-    console.log('mounted');
+    const handleScroll = () => setScrolled(window.scrollY > 50);
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
   return (
-    <div className="container mx-auto p-4">
-      <h1>{title}</h1>
-      <Button onClick={() => setCount(c => c + 1)}>
-        Count: {count}
-      </Button>
+    <div className="font-sans bg-stone-50">
+      <nav className={`fixed w-full z-40 ${scrolled ? 'bg-white shadow' : 'bg-transparent'}`}>
+        <button onClick={() => setIsMenuOpen(!isMenuOpen)}>
+          {isMenuOpen ? <X size={28} /> : <Menu size={28} />}
+        </button>
+      </nav>
+      <section className="min-h-screen flex items-center px-6">
+        <h1 className="text-6xl font-bold">Welcome</h1>
+        <button className="flex items-center gap-2">
+          Learn More <ArrowRight size={18} />
+        </button>
+      </section>
+      <footer className="bg-stone-900 text-white py-12">
+        <Heart size={24} />
+        <p>© 2024 Company</p>
+      </footer>
     </div>
   );
-}
+};
+
+export default App;
 
 Tu dois répondre EXACTEMENT CECI (rien d'autre):
 
 function Preview() {
-  const [count, setCount] = React.useState(0);
+  const [isMenuOpen, setIsMenuOpen] = React.useState(false);
+  const [scrolled, setScrolled] = React.useState(false);
 
   React.useEffect(() => {
-    console.log('mounted');
+    const handleScroll = () => setScrolled(window.scrollY > 50);
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
   return (
-    <div className="container mx-auto p-4">
-      <h1>Welcome</h1>
-      <button onClick={() => setCount(c => c + 1)}>
-        Count: {count}
-      </button>
+    <div className="font-sans bg-stone-50">
+      <nav className={`fixed w-full z-40 ${scrolled ? 'bg-white shadow' : 'bg-transparent'}`}>
+        <button onClick={() => setIsMenuOpen(!isMenuOpen)}>
+          {isMenuOpen ? <span>✕</span> : <span>☰</span>}
+        </button>
+      </nav>
+      <section className="min-h-screen flex items-center px-6">
+        <h1 className="text-6xl font-bold">Welcome</h1>
+        <button className="flex items-center gap-2">
+          Learn More <span>→</span>
+        </button>
+      </section>
+      <footer className="bg-stone-900 text-white py-12">
+        <span>♥</span>
+        <p>© 2024 Company</p>
+      </footer>
     </div>
   );
 }
