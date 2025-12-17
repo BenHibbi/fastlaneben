@@ -194,7 +194,7 @@ export async function sanitizeReactCode(rawCode: string): Promise<SanitizationRe
           { role: 'user', content: userMessage }
         ],
         temperature: 0.1,
-        max_tokens: 8192
+        max_tokens: 32768 // Large output for long components
       })
 
       const llmOutput = response.choices[0]?.message?.content

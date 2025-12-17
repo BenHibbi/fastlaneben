@@ -156,7 +156,16 @@ export function autoFixCode(code: string): AutoFixResult {
     fixesApplied.push('Removed markdown code blocks')
   }
 
-  // Remove import statements
+  // Remove import statements (including multi-line imports)
+  // First handle multi-line imports: import { ... } from '...'
+  const multiLineImportPattern = /^import\s*\{[\s\S]*?\}\s*from\s*['"][^'"]+['"];?\s*$/gm
+  const multiLineMatches = fixedCode.match(multiLineImportPattern)
+  if (multiLineMatches && multiLineMatches.length > 0) {
+    fixedCode = fixedCode.replace(multiLineImportPattern, '')
+    fixesApplied.push(`Removed ${multiLineMatches.length} multi-line import(s)`)
+  }
+
+  // Then handle single-line imports
   const importPattern = /^import\s+.*(?:from\s+['"].*['"]|['"].*['"])?\s*;?\s*$/gm
   const importMatches = fixedCode.match(importPattern)
   if (importMatches && importMatches.length > 0) {
@@ -173,12 +182,16 @@ export function autoFixCode(code: string): AutoFixResult {
   }
 
   // Remove export statements
-  fixedCode = fixedCode.replace(/^export\s+default\s+/gm, '')
-  if (code !== fixedCode && !fixesApplied.includes('Removed export default')) {
-    const beforeLen = code.length
-    if (fixedCode.length !== beforeLen) {
-      fixesApplied.push('Removed export default')
-    }
+  const beforeExportFix = fixedCode
+
+  // Remove "export default ComponentName;" at end of file
+  fixedCode = fixedCode.replace(/^export\s+default\s+\w+\s*;?\s*$/gm, '')
+
+  // Remove "export default" prefix from function/const declarations
+  fixedCode = fixedCode.replace(/^export\s+default\s+(?=function|const|class)/gm, '')
+
+  if (fixedCode !== beforeExportFix) {
+    fixesApplied.push('Removed export default')
   }
 
   // Remove named exports
@@ -206,10 +219,20 @@ export function autoFixCode(code: string): AutoFixResult {
   const componentNames = ['HomePage', 'Home', 'App', 'Main', 'Landing', 'Page', 'Website', 'Site', 'Component', 'Design']
   for (const name of componentNames) {
     const funcPattern = new RegExp(`function\\s+${name}\\s*\\(`, 'g')
-    const arrowPattern = new RegExp(`const\\s+${name}\\s*=\\s*\\(\\s*\\)\\s*=>`, 'g')
+    // More flexible arrow function pattern - handles () => { and (props) => { etc
+    const arrowPattern = new RegExp(`const\\s+${name}\\s*=\\s*\\([^)]*\\)\\s*=>`, 'g')
     const classPattern = new RegExp(`class\\s+${name}\\s+extends`, 'g')
 
-    if (funcPattern.test(fixedCode) || arrowPattern.test(fixedCode) || classPattern.test(fixedCode)) {
+    const hasFuncMatch = funcPattern.test(fixedCode)
+    const hasArrowMatch = arrowPattern.test(fixedCode)
+    const hasClassMatch = classPattern.test(fixedCode)
+
+    // Reset lastIndex after test() calls
+    funcPattern.lastIndex = 0
+    arrowPattern.lastIndex = 0
+    classPattern.lastIndex = 0
+
+    if (hasFuncMatch || hasArrowMatch || hasClassMatch) {
       fixedCode = fixedCode
         .replace(funcPattern, 'function Preview(')
         .replace(arrowPattern, 'const Preview = () =>')
