@@ -41,22 +41,18 @@ const FORBIDDEN_PATTERNS = {
     /^['"]use client['"];?\s*$/gm,
     /^['"]use server['"];?\s*$/gm,
   ],
-  // TypeScript-specific (that won't compile in browser)
+  // TypeScript-specific (only block the most problematic ones)
+  // Note: esbuild handles most TypeScript fine, so we only block interface/type declarations
   typescript: [
     /:\s*(React\.FC|FC|FunctionComponent)\s*[<>]/g,
-    /interface\s+\w+\s*\{/g,
-    /type\s+\w+\s*=\s*/g,
-    /<\w+>\s*\(/g, // Generic function calls like <Props>()
-    /:\s*\w+\[\]/g, // Type annotations like : string[]
-    /as\s+\w+/g, // Type assertions
+    /^interface\s+\w+\s*\{/gm, // Only at line start to avoid false positives
+    /^type\s+\w+\s*=\s*/gm, // Only at line start
   ],
-  // Dangerous code
+  // Dangerous code - only the really dangerous stuff
   dangerous: [
     /\beval\s*\(/g,
     /new\s+Function\s*\(/g,
     /document\.write\s*\(/g,
-    /innerHTML\s*=/g,
-    /dangerouslySetInnerHTML/g,
   ],
   // Markdown wrappers
   markdown: [
@@ -237,6 +233,20 @@ export function autoFixCode(code: string): AutoFixResult {
   if (fcPattern.test(fixedCode)) {
     fixedCode = fixedCode.replace(fcPattern, ' =')
     fixesApplied.push('Removed FC type annotation')
+  }
+
+  // Remove interface declarations
+  const interfacePattern = /^interface\s+\w+\s*\{[\s\S]*?\n\}\s*\n?/gm
+  if (interfacePattern.test(fixedCode)) {
+    fixedCode = fixedCode.replace(interfacePattern, '')
+    fixesApplied.push('Removed interface declarations')
+  }
+
+  // Remove type declarations
+  const typePattern = /^type\s+\w+\s*=\s*[^;]+;\s*\n?/gm
+  if (typePattern.test(fixedCode)) {
+    fixedCode = fixedCode.replace(typePattern, '')
+    fixesApplied.push('Removed type declarations')
   }
 
   // Clean up empty lines (but keep some structure)
