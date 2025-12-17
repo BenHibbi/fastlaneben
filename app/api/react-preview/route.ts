@@ -28,8 +28,17 @@ async function compilePreviewCode(code: string): Promise<string> {
   const wrappedCode = `// Preview bundle (React provided as global)
 ${code}
 
-// Expose component for renderer
-const __previewExport = typeof Preview !== 'undefined' ? Preview : null;
+// Expose component for renderer - try multiple patterns
+const __previewExport =
+  typeof Preview !== 'undefined' ? Preview :
+  typeof App !== 'undefined' ? App :
+  typeof Main !== 'undefined' ? Main :
+  typeof HomePage !== 'undefined' ? HomePage :
+  typeof Home !== 'undefined' ? Home :
+  typeof Page !== 'undefined' ? Page :
+  typeof LandingPage !== 'undefined' ? LandingPage :
+  typeof Website !== 'undefined' ? Website :
+  null;
 window.__FASTLANE_PREVIEW__ = __previewExport;`
 
   const result = await transform(wrappedCode, {
@@ -41,9 +50,24 @@ window.__FASTLANE_PREVIEW__ = __previewExport;`
     jsxFragment: 'React.Fragment',
     banner: `const React = window.React;
 const ReactDOM = window.ReactDOM;
+// Lucide icons shim - returns empty span components
+const LucideShim = new Proxy({}, {
+  get: function(target, prop) {
+    if (typeof prop === 'string' && prop !== 'then') {
+      return function LucideIcon(props) {
+        return React.createElement('span', {
+          className: props?.className || '',
+          style: { display: 'inline-block', width: props?.size || 24, height: props?.size || 24 }
+        });
+      };
+    }
+    return undefined;
+  }
+});
 const require = function(mod) {
   if (mod === 'react') return window.React;
   if (mod === 'react-dom') return window.ReactDOM;
+  if (mod === 'lucide-react') return LucideShim;
   console.warn('Module not available:', mod);
   return {};
 };

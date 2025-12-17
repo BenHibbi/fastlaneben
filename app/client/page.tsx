@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { Client, ClientState } from '@/types/database'
 import { STATE_CONFIG } from '@/lib/state-machine'
@@ -18,14 +18,49 @@ import { Fastbot } from '@/components/Fastbot'
 
 export default function ClientSingleSurface() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [client, setClient] = useState<Client | null>(null)
   const [loading, setLoading] = useState(true)
   const [userEmail, setUserEmail] = useState<string | null>(null)
   const [userId, setUserId] = useState<string | null>(null)
+  const [addonSuccess, setAddonSuccess] = useState(false)
 
   useEffect(() => {
     loadClient()
   }, [])
+
+  // Handle addon_success parameter
+  useEffect(() => {
+    if (searchParams.get('addon_success') === 'true' && client?.id) {
+      handleAddonSuccess()
+    }
+  }, [searchParams, client?.id])
+
+  const handleAddonSuccess = async () => {
+    if (!client) return
+
+    const supabase = createClient()
+
+    // Update client to building phase and increment revision round
+    const currentRound = client.revision_round || 1
+    await supabase
+      .from('clients')
+      .update({
+        onboarding_phase: 'building',
+        revision_round: currentRound + 1,
+        revision_modifications_used: 0, // Reset for new round
+        updated_at: new Date().toISOString()
+      } as never)
+      .eq('id', client.id)
+
+    setAddonSuccess(true)
+
+    // Remove the query parameter from URL
+    router.replace('/client')
+
+    // Refresh client data
+    await refreshClient()
+  }
 
   const loadClient = async () => {
     const supabase = createClient()

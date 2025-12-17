@@ -302,9 +302,21 @@ export function FinalOnboardingSection({ client, onUpdate }: FinalOnboardingSect
   }
 
   // Handler for when revisions are submitted
-  const handleRevisionSubmitted = () => {
+  const handleRevisionSubmitted = async () => {
     setShowRevisionForm(false)
     setPhase('building')
+
+    // Persist to database
+    const supabase = createClient()
+    await supabase
+      .from('clients')
+      .update({
+        onboarding_phase: 'building',
+        updated_at: new Date().toISOString()
+      } as never)
+      .eq('id', client.id)
+
+    onUpdate()
   }
 
   // Render phase-specific content
@@ -402,6 +414,9 @@ export function FinalOnboardingSection({ client, onUpdate }: FinalOnboardingSect
   }
 
   if (phase === 'building') {
+    const isRevisionRound = (client.revision_round || 1) > 1 || (client.revision_modifications_used || 0) > 0
+    const roundNumber = client.revision_round || 1
+
     return (
       <div className="max-w-3xl mx-auto">
         <div className="text-center mb-12">
@@ -410,13 +425,17 @@ export function FinalOnboardingSection({ client, onUpdate }: FinalOnboardingSect
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-lime-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-3 w-3 bg-lime-500"></span>
             </span>
-            Building in progress
+            {isRevisionRound ? `Building V${roundNumber + 1}` : 'Building in progress'}
           </div>
           <h1 className="font-serif-display text-3xl sm:text-4xl text-slate-900 mb-4">
-            We&apos;re building your site!
+            {isRevisionRound
+              ? `We're building your updated preview!`
+              : `We're building your site!`}
           </h1>
           <p className="text-slate-500 text-lg max-w-md mx-auto">
-            Our team is crafting something beautiful for {client.business_name || 'your business'}. We&apos;ll notify you when it&apos;s ready to review.
+            {isRevisionRound
+              ? `We've received your revision requests and are working on V${roundNumber + 1} for ${client.business_name || 'your business'}. We'll notify you when it's ready!`
+              : `Our team is crafting something beautiful for ${client.business_name || 'your business'}. We'll notify you when it's ready to review.`}
           </p>
         </div>
 
