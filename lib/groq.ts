@@ -172,7 +172,6 @@ export async function sanitizeReactCode(rawCode: string): Promise<SanitizationRe
         temperature: 1,
         max_completion_tokens: 32768,
         top_p: 1,
-        // @ts-expect-error - reasoning_effort not in types yet
         reasoning_effort: 'low'
       })
 
