@@ -2,11 +2,21 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient as createServerClient } from '@/lib/supabase/server'
 import { isAdminEmail, verifyAdmin } from '@/lib/auth/admin'
-import { sanitizeReactCode } from '@/lib/groq'
+import { sanitizeReactCode, SanitizationError } from '@/lib/groq'
 import { sendFirstPreviewEmail, sendSecondPreviewEmail } from '@/lib/email'
 import { reactPreviewPostSchema, validateRequest } from '@/lib/validation'
 import { previewLogger } from '@/lib/logger'
 import type { ReactPreview, Client } from '@/types/database'
+
+// Error codes for frontend
+const ERROR_CODES = {
+  SANITIZATION_FAILED: 'SANITIZATION_FAILED',
+  COMPILATION_FAILED: 'COMPILATION_FAILED',
+  INVALID_INPUT: 'INVALID_INPUT',
+  NOT_FOUND: 'NOT_FOUND',
+  UNAUTHORIZED: 'UNAUTHORIZED',
+  INTERNAL: 'INTERNAL'
+} as const
 
 export const runtime = 'nodejs'
 
@@ -21,8 +31,22 @@ async function getAuthenticatedUser() {
   return user
 }
 
+// Compilation result type
+interface CompilationResult {
+  success: true
+  code: string
+}
+
+interface CompilationError {
+  success: false
+  error: string
+  details?: string
+  line?: number
+  column?: number
+}
+
 // Compile sanitized TSX/JSX into a self-contained IIFE that exposes Preview on window
-async function compilePreviewCode(code: string): Promise<string> {
+async function compilePreviewCode(code: string): Promise<CompilationResult | CompilationError> {
   const { transform } = await import('esbuild')
 
   const wrappedCode = `// Preview bundle (React provided as global)
@@ -44,14 +68,15 @@ const __previewExport =
   null;
 window.__FASTLANE_PREVIEW__ = __previewExport;`
 
-  const result = await transform(wrappedCode, {
-    loader: 'tsx',
-    format: 'iife',
-    globalName: 'PreviewBundle',
-    target: 'es2018',
-    jsxFactory: 'React.createElement',
-    jsxFragment: 'React.Fragment',
-    banner: `const React = window.React;
+  try {
+    const result = await transform(wrappedCode, {
+      loader: 'tsx',
+      format: 'iife',
+      globalName: 'PreviewBundle',
+      target: 'es2018',
+      jsxFactory: 'React.createElement',
+      jsxFragment: 'React.Fragment',
+      banner: `const React = window.React;
 const ReactDOM = window.ReactDOM;
 // Lucide icons shim - returns empty span components
 const LucideShim = new Proxy({}, {
@@ -77,11 +102,34 @@ const require = function(mod) {
 const exports = {};
 const module = { exports: exports };
 `,
-    footer: 'window.__FASTLANE_PREVIEW__ = typeof window.__FASTLANE_PREVIEW__ !== "undefined" ? window.__FASTLANE_PREVIEW__ : (typeof PreviewBundle !== "undefined" ? (PreviewBundle.default || PreviewBundle.Preview || null) : null);',
-    minify: true,
-  })
+      footer: 'window.__FASTLANE_PREVIEW__ = typeof window.__FASTLANE_PREVIEW__ !== "undefined" ? window.__FASTLANE_PREVIEW__ : (typeof PreviewBundle !== "undefined" ? (PreviewBundle.default || PreviewBundle.Preview || null) : null);',
+      minify: true,
+    })
 
-  return result.code
+    return { success: true, code: result.code }
+  } catch (err: unknown) {
+    // Parse esbuild error for detailed info
+    const errorMessage = err instanceof Error ? err.message : String(err)
+
+    // esbuild errors often have format: "file:line:column: error message"
+    const match = errorMessage.match(/:(\d+):(\d+):\s*(.+)/)
+    if (match) {
+      const [, lineStr, colStr, details] = match
+      return {
+        success: false,
+        error: 'Compilation failed',
+        details: details.trim(),
+        line: parseInt(lineStr, 10) - 1, // Adjust for header offset
+        column: parseInt(colStr, 10)
+      }
+    }
+
+    return {
+      success: false,
+      error: 'Compilation failed',
+      details: errorMessage
+    }
+  }
 }
 
 // POST - Admin posts React code (sanitizes with LLM)
@@ -143,23 +191,61 @@ export async function POST(request: NextRequest) {
       .update({ is_active: false } as never)
       .eq('client_id', clientId)
 
-    // Sanitize code with LLM
-    const sanitizedCode = await sanitizeReactCode(rawCode)
+    const startTime = Date.now()
+
+    // Sanitize code with LLM (with validation and retry)
+    let sanitizationResult
+    try {
+      sanitizationResult = await sanitizeReactCode(rawCode)
+      previewLogger.info('Code sanitized successfully', {
+        clientId,
+        attempts: sanitizationResult.attempts,
+        fixesApplied: sanitizationResult.fixesApplied
+      })
+    } catch (err) {
+      if (err instanceof SanitizationError) {
+        previewLogger.error('Sanitization failed', {
+          clientId,
+          attempts: err.attempts,
+          details: err.details
+        })
+        return NextResponse.json(
+          {
+            error: 'Code sanitization failed',
+            code: ERROR_CODES.SANITIZATION_FAILED,
+            details: err.details.join('; '),
+            attempts: err.attempts
+          },
+          { status: 400 }
+        )
+      }
+      throw err
+    }
 
     // Compile sanitized code server-side (no Babel in client)
-    let compiledCode: string
-    try {
-      compiledCode = await compilePreviewCode(sanitizedCode)
-    } catch (err) {
+    const compilationResult = await compilePreviewCode(sanitizationResult.code)
+
+    if (!compilationResult.success) {
       previewLogger.error('Failed to compile preview code', {
         clientId,
-        error: err instanceof Error ? err.message : String(err)
+        error: compilationResult.error,
+        details: compilationResult.details,
+        line: compilationResult.line
       })
       return NextResponse.json(
-        { error: 'Preview code could not be compiled. Please check the component syntax.' },
+        {
+          error: 'Preview code could not be compiled',
+          code: ERROR_CODES.COMPILATION_FAILED,
+          details: compilationResult.details,
+          line: compilationResult.line,
+          column: compilationResult.column
+        },
         { status: 400 }
       )
     }
+
+    const compiledCode = compilationResult.code
+    const processingTimeMs = Date.now() - startTime
 
     // Save new preview
     const { data: previewData, error: insertError } = await supabase
@@ -219,7 +305,8 @@ export async function POST(request: NextRequest) {
     previewLogger.info('Preview created', {
       clientId,
       previewId: preview.id,
-      version: nextVersion
+      version: nextVersion,
+      processingTimeMs
     })
 
     return NextResponse.json({
@@ -228,6 +315,12 @@ export async function POST(request: NextRequest) {
         id: preview.id,
         version: preview.version,
         sanitizedCode: preview.sanitized_code
+      },
+      meta: {
+        sanitizationAttempts: sanitizationResult.attempts,
+        fixesApplied: sanitizationResult.fixesApplied,
+        warnings: sanitizationResult.warnings,
+        processingTimeMs
       }
     })
   } catch (error) {

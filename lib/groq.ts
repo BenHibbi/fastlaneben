@@ -1,6 +1,22 @@
 import Groq from 'groq-sdk'
 import { readFileSync } from 'fs'
 import { join } from 'path'
+import { validateAndFix, looksLikeReactCode, type ValidationError } from './react-validator'
+
+// Custom error class for sanitization failures
+export class SanitizationError extends Error {
+  public readonly code: string
+  public readonly details: string[]
+  public readonly attempts: number
+
+  constructor(message: string, details: string[], attempts: number) {
+    super(message)
+    this.name = 'SanitizationError'
+    this.code = 'SANITIZATION_FAILED'
+    this.details = details
+    this.attempts = attempts
+  }
+}
 
 // Initialize Groq client
 function getGroqClient() {
@@ -20,6 +36,7 @@ function loadPrompt(filename: string): string {
 // Lazy-load prompts (cached after first load)
 let briefPromptCache: string | null = null
 let sanitizePromptCache: string | null = null
+let sanitizeStrictPromptCache: string | null = null
 
 function getBriefPrompt(): string {
   if (!briefPromptCache) {
@@ -33,6 +50,13 @@ function getSanitizePrompt(): string {
     sanitizePromptCache = loadPrompt('react-code-sanitizer.md')
   }
   return sanitizePromptCache
+}
+
+function getSanitizeStrictPrompt(): string {
+  if (!sanitizeStrictPromptCache) {
+    sanitizeStrictPromptCache = loadPrompt('react-code-sanitizer-strict.md')
+  }
+  return sanitizeStrictPromptCache
 }
 
 // Transcribe audio using Whisper
@@ -99,19 +123,104 @@ ${transcript}
   }
 }
 
-// Sanitize React code for safe preview rendering
-export async function sanitizeReactCode(rawCode: string): Promise<string> {
+// Sanitization result type
+export interface SanitizationResult {
+  code: string
+  attempts: number
+  fixesApplied: string[]
+  warnings: string[]
+}
+
+// Sanitize React code for safe preview rendering with validation and retry
+export async function sanitizeReactCode(rawCode: string): Promise<SanitizationResult> {
   const groq = getGroqClient()
+  const MAX_ATTEMPTS = 3
+  const allFixesApplied: string[] = []
+  const allWarnings: string[] = []
 
-  const response = await groq.chat.completions.create({
-    model: 'openai/gpt-oss-20b',
-    messages: [
-      { role: 'system', content: getSanitizePrompt() },
-      { role: 'user', content: rawCode }
-    ],
-    temperature: 0.3,
-    max_tokens: 8192
-  })
+  // Validate raw code looks like React
+  if (!looksLikeReactCode(rawCode)) {
+    throw new SanitizationError(
+      'Input does not appear to be valid React code',
+      ['Missing component function or JSX'],
+      0
+    )
+  }
 
-  return response.choices[0]?.message?.content || rawCode
+  let lastCode = rawCode
+  let lastErrors: ValidationError[] = []
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    console.log(`[Sanitization] Attempt ${attempt}/${MAX_ATTEMPTS}`)
+
+    // Choose prompt based on attempt (stricter on retry)
+    const isRetry = attempt > 1
+    const prompt = isRetry ? getSanitizeStrictPrompt() : getSanitizePrompt()
+
+    // Build user message with context on retry
+    let userMessage = lastCode
+    if (isRetry && lastErrors.length > 0) {
+      const errorSummary = lastErrors.map(e => `- ${e.message}`).join('\n')
+      userMessage = `PREVIOUS ATTEMPT FAILED. Errors found:\n${errorSummary}\n\nPlease fix these issues:\n\n${lastCode}`
+    }
+
+    try {
+      const response = await groq.chat.completions.create({
+        model: 'openai/gpt-oss-20b',
+        messages: [
+          { role: 'system', content: prompt },
+          { role: 'user', content: userMessage }
+        ],
+        temperature: isRetry ? 0.1 : 0.3, // Lower temperature on retry
+        max_tokens: 8192
+      })
+
+      const llmOutput = response.choices[0]?.message?.content
+
+      if (!llmOutput || llmOutput.trim().length === 0) {
+        console.log(`[Sanitization] Attempt ${attempt}: Empty response from LLM`)
+        lastErrors = [{ type: 'syntax', message: 'LLM returned empty response', fixable: false }]
+        continue
+      }
+
+      // Validate and auto-fix the LLM output
+      const validation = validateAndFix(llmOutput)
+
+      if (validation.fixesApplied.length > 0) {
+        allFixesApplied.push(...validation.fixesApplied.map(f => `[Attempt ${attempt}] ${f}`))
+        console.log(`[Sanitization] Attempt ${attempt}: Applied fixes:`, validation.fixesApplied)
+      }
+
+      if (validation.warnings.length > 0) {
+        allWarnings.push(...validation.warnings)
+      }
+
+      if (validation.valid) {
+        console.log(`[Sanitization] Attempt ${attempt}: SUCCESS`)
+        return {
+          code: validation.code,
+          attempts: attempt,
+          fixesApplied: allFixesApplied,
+          warnings: allWarnings
+        }
+      }
+
+      // Not valid yet - prepare for retry
+      lastCode = validation.code // Use the partially fixed code for next attempt
+      lastErrors = validation.errors
+      console.log(`[Sanitization] Attempt ${attempt}: Validation failed with ${lastErrors.length} errors`)
+
+    } catch (err) {
+      console.error(`[Sanitization] Attempt ${attempt}: LLM error:`, err)
+      lastErrors = [{ type: 'syntax', message: `LLM error: ${err instanceof Error ? err.message : 'Unknown'}`, fixable: false }]
+    }
+  }
+
+  // All attempts failed - throw detailed error
+  const errorDetails = lastErrors.map(e => e.message)
+  throw new SanitizationError(
+    `Code sanitization failed after ${MAX_ATTEMPTS} attempts`,
+    errorDetails,
+    MAX_ATTEMPTS
+  )
 }
