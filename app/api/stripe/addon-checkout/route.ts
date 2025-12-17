@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getStripe } from '@/lib/stripe'
 import { ADD_ONS } from '@/lib/addons'
 
-// Placeholder mapping for Stripe price IDs - to be configured in env
+// Stripe price IDs for add-ons (configured in Stripe Dashboard)
 const ADDON_PRICE_MAP: Record<string, string | undefined> = {
   'online-booking': process.env.STRIPE_PRICE_ONLINE_BOOKING,
   'local-seo': process.env.STRIPE_PRICE_LOCAL_SEO,
@@ -75,54 +76,37 @@ export async function POST(req: Request) {
     // Calculate total
     const totalMonthly = selectedAddons.reduce((sum, addon) => sum + addon.price, 0)
 
-    // TODO: Implement Stripe checkout when ready
-    // For now, return a placeholder response that skips actual payment
-    // This allows testing the UI flow without Stripe integration
-
-    // Check if Stripe prices are configured
+    // Check if all Stripe prices are configured
     const missingPrices = selectedAddons.filter(addon => !ADDON_PRICE_MAP[addon.id])
     if (missingPrices.length > 0) {
-      console.log('Stripe prices not configured for:', missingPrices.map(a => a.id))
-
-      // Store pending revisions and add-ons for later processing
-      // In production, this would be done via Stripe webhook after payment
-      if (pendingRevisions && pendingRevisions.length > 0) {
-        // Store in metadata or temp table - for now just log
-        console.log('Pending revisions to process:', pendingRevisions)
-      }
-
-      // Return without URL to trigger placeholder behavior
+      console.error('Missing Stripe prices for:', missingPrices.map(a => a.id))
       return NextResponse.json({
-        success: true,
-        message: 'Stripe not configured - proceeding without payment',
-        addons: selectedAddons.map(a => ({ id: a.id, name: a.name, price: a.price })),
-        totalMonthly
-        // No URL means the client will proceed without redirect
-      })
+        error: `Stripe prices not configured for: ${missingPrices.map(a => a.name).join(', ')}`
+      }, { status: 500 })
     }
 
-    // When Stripe is configured, create checkout session here
-    // const stripe = getStripe()
-    // const session = await stripe.checkout.sessions.create({
-    //   mode: 'subscription',
-    //   line_items: selectedAddons.map(addon => ({
-    //     price: ADDON_PRICE_MAP[addon.id],
-    //     quantity: 1
-    //   })),
-    //   metadata: {
-    //     type: 'addon_purchase',
-    //     client_id: clientId,
-    //     addons: JSON.stringify(selectedAddons),
-    //     pending_revisions: JSON.stringify(pendingRevisions)
-    //   },
-    //   success_url: `${process.env.NEXT_PUBLIC_APP_URL}/client?addon_success=true`,
-    //   cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/client`
-    // })
-    // return NextResponse.json({ url: session.url })
+    // Create Stripe checkout session
+    const stripe = getStripe()
+
+    const session = await stripe.checkout.sessions.create({
+      mode: 'subscription',
+      customer_email: clientData.email,
+      line_items: selectedAddons.map(addon => ({
+        price: ADDON_PRICE_MAP[addon.id]!,
+        quantity: 1
+      })),
+      metadata: {
+        type: 'addon_purchase',
+        client_id: clientId,
+        addon_ids: JSON.stringify(addons),
+        pending_revisions: pendingRevisions ? JSON.stringify(pendingRevisions) : ''
+      },
+      success_url: `${process.env.NEXT_PUBLIC_APP_URL}/client?addon_success=true`,
+      cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/client`
+    })
 
     return NextResponse.json({
-      success: true,
-      message: 'Stripe integration pending',
+      url: session.url,
       addons: selectedAddons.map(a => ({ id: a.id, name: a.name, price: a.price })),
       totalMonthly
     })
