@@ -333,12 +333,78 @@ function findLineNumber(code: string, substring: string): number {
 
 function checkBraceBalance(code: string): { curly: number; paren: number; bracket: number } {
   // Remove strings and comments to avoid false positives
-  const cleaned = code
-    .replace(/`[^`]*`/g, '') // template literals
-    .replace(/"[^"]*"/g, '') // double quotes
-    .replace(/'[^']*'/g, '') // single quotes
-    .replace(/\/\/.*$/gm, '') // single line comments
-    .replace(/\/\*[\s\S]*?\*\//g, '') // multi-line comments
+  // Process character by character to handle nested template literals correctly
+  let cleaned = ''
+  let i = 0
+
+  while (i < code.length) {
+    // Single line comment
+    if (code[i] === '/' && code[i + 1] === '/') {
+      while (i < code.length && code[i] !== '\n') i++
+      continue
+    }
+
+    // Multi-line comment
+    if (code[i] === '/' && code[i + 1] === '*') {
+      i += 2
+      while (i < code.length - 1 && !(code[i] === '*' && code[i + 1] === '/')) i++
+      i += 2
+      continue
+    }
+
+    // Template literal - skip entire thing including nested ${}
+    if (code[i] === '`') {
+      i++
+      let depth = 0
+      while (i < code.length) {
+        if (code[i] === '\\') {
+          i += 2 // skip escaped char
+          continue
+        }
+        if (code[i] === '$' && code[i + 1] === '{') {
+          depth++
+          i += 2
+          continue
+        }
+        if (code[i] === '}' && depth > 0) {
+          depth--
+          i++
+          continue
+        }
+        if (code[i] === '`' && depth === 0) {
+          i++
+          break
+        }
+        i++
+      }
+      continue
+    }
+
+    // Double quote string
+    if (code[i] === '"') {
+      i++
+      while (i < code.length && code[i] !== '"') {
+        if (code[i] === '\\') i++
+        i++
+      }
+      i++
+      continue
+    }
+
+    // Single quote string
+    if (code[i] === "'") {
+      i++
+      while (i < code.length && code[i] !== "'") {
+        if (code[i] === '\\') i++
+        i++
+      }
+      i++
+      continue
+    }
+
+    cleaned += code[i]
+    i++
+  }
 
   let curly = 0
   let paren = 0
