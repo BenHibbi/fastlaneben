@@ -180,18 +180,11 @@ export function FinalOnboardingSection({ client, onUpdate }: FinalOnboardingSect
     }
   }
 
-  const validateSocialLinks = (links: string) => {
-    if (!links.trim()) return true // Optional field
-    const urls = links.split('\n').filter(l => l.trim())
-    return urls.every(url => isValidUrl(url.trim()))
-  }
-
   const canSubmit = () => {
     const requiredFields = ['tagline', 'about', 'detailed_description', 'services', 'contact_email']
     const missingFields = requiredFields.filter(field => !formData[field as keyof typeof formData]?.trim())
     const emailValid = isValidEmail(formData.contact_email)
-    const socialValid = validateSocialLinks(formData.social_links)
-    return missingFields.length === 0 && uploadedImages.length > 0 && emailValid && socialValid
+    return missingFields.length === 0 && uploadedImages.length > 0 && emailValid
   }
 
   const handleSubmit = async () => {
@@ -207,12 +200,6 @@ export function FinalOnboardingSection({ client, onUpdate }: FinalOnboardingSect
     // Validate email format
     if (!isValidEmail(formData.contact_email)) {
       setError('Please enter a valid email address')
-      return
-    }
-
-    // Validate social links format
-    if (!validateSocialLinks(formData.social_links)) {
-      setError('Please enter valid URLs for social media links (one per line, starting with https://)')
       return
     }
 
