@@ -188,7 +188,7 @@ export async function sanitizeReactCode(rawCode: string): Promise<SanitizationRe
 
     try {
       const response = await groq.chat.completions.create({
-        model: 'llama-3.3-70b-versatile', // More capable than gpt-oss-20b
+        model: 'openai/gpt-oss-120b', // Most capable model on Groq
         messages: [
           { role: 'system', content: prompt },
           { role: 'user', content: userMessage }
