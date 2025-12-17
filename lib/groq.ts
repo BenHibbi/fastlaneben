@@ -201,18 +201,6 @@ export async function sanitizeReactCode(rawCode: string): Promise<SanitizationRe
       debugParts.push(`last_chars=${lastChars}`)
       console.log(`[Sanitization] Last 300 chars: ${lastChars}`)
 
-      // Debug: save LLM output to file for inspection
-      try {
-        const tmpDir = join(process.cwd(), 'tmp')
-        if (!existsSync(tmpDir)) {
-          mkdirSync(tmpDir, { recursive: true })
-        }
-        const debugPath = join(tmpDir, `llm-output-${Date.now()}.txt`)
-        writeFileSync(debugPath, llmOutput, 'utf-8')
-        console.log(`[Sanitization] LLM output saved to: ${debugPath}`)
-      } catch (e) {
-        console.log(`[Sanitization] Could not save debug file: ${e}`)
-      }
 
       // Minimal validation - only check critical errors
       const validation = validateMinimal(llmOutput)

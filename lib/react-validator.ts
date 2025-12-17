@@ -331,13 +331,18 @@ function findLineNumber(code: string, substring: string): number {
   return code.substring(0, index).split('\n').length
 }
 
-function checkBraceBalance(code: string): { curly: number; paren: number; bracket: number } {
+function checkBraceBalance(code: string): { curly: number; paren: number; bracket: number; debugInfo: string } {
   // Count braces directly, skipping only the CONTENT of strings/comments
   // We keep all braces {} () [] and just ignore string contents
   let curly = 0
   let paren = 0
   let bracket = 0
   let i = 0
+  let lineNum = 1
+  let maxCurly = 0
+  let maxCurlyLine = 1
+  let maxParen = 0
+  let maxParenLine = 1
 
   while (i < code.length) {
     const char = code[i]
@@ -440,10 +445,19 @@ function checkBraceBalance(code: string): { curly: number; paren: number; bracke
 
     // JSX string attribute - already handled by " and ' above
 
-    // Count regular braces
-    if (char === '{') curly++
+    // Track line numbers
+    if (char === '\n') lineNum++
+
+    // Count regular braces and track max depth
+    if (char === '{') {
+      curly++
+      if (curly > maxCurly) { maxCurly = curly; maxCurlyLine = lineNum }
+    }
     else if (char === '}') curly--
-    else if (char === '(') paren++
+    else if (char === '(') {
+      paren++
+      if (paren > maxParen) { maxParen = paren; maxParenLine = lineNum }
+    }
     else if (char === ')') paren--
     else if (char === '[') bracket++
     else if (char === ']') bracket--
@@ -451,10 +465,11 @@ function checkBraceBalance(code: string): { curly: number; paren: number; bracke
     i++
   }
 
-  // Debug
-  console.log(`[checkBraceBalance] Final counts: curly=${curly}, paren=${paren}, bracket=${bracket}`)
+  // Build debug info
+  const debugInfo = `maxCurlyDepth=${maxCurly} at line ${maxCurlyLine}, maxParenDepth=${maxParen} at line ${maxParenLine}`
+  console.log(`[checkBraceBalance] Final counts: curly=${curly}, paren=${paren}, bracket=${bracket} | ${debugInfo}`)
 
-  return { curly, paren, bracket }
+  return { curly, paren, bracket, debugInfo }
 }
 
 /**
@@ -521,11 +536,11 @@ export function validateMinimal(code: string): MinimalValidationResult {
   const balance = checkBraceBalance(cleanedCode)
   if (balance.curly !== 0) {
     const direction = balance.curly > 0 ? 'missing closing' : 'extra closing'
-    errors.push(`Unbalanced curly braces: ${Math.abs(balance.curly)} ${direction}`)
+    errors.push(`Unbalanced curly braces: ${Math.abs(balance.curly)} ${direction} (${balance.debugInfo})`)
   }
   if (balance.paren !== 0) {
     const direction = balance.paren > 0 ? 'missing closing' : 'extra closing'
-    errors.push(`Unbalanced parentheses: ${Math.abs(balance.paren)} ${direction}`)
+    errors.push(`Unbalanced parentheses: ${Math.abs(balance.paren)} ${direction} (${balance.debugInfo})`)
   }
 
   // 3. Check for Preview component
