@@ -4,6 +4,7 @@ import { STATE_CONFIG } from '@/lib/state-machine'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import type { ClientState, Client } from '@/types/database'
+import { DeleteClientButton } from '@/components/admin/DeleteClientButton'
 
 export default async function ClientsPage({
   searchParams,
@@ -92,6 +93,7 @@ export default async function ClientsPage({
               <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wide">Subscription</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wide">Updated</th>
               <th className="px-4 py-3"></th>
+              <th className="px-4 py-3"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -140,11 +142,17 @@ export default async function ClientsPage({
                     View →
                   </Link>
                 </td>
+                <td className="px-4 py-3">
+                  <DeleteClientButton
+                    clientId={client.id}
+                    businessName={client.business_name || 'Unnamed'}
+                  />
+                </td>
               </tr>
             ))}
             {allClients.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-12 text-center text-slate-500">
+                <td colSpan={7} className="px-4 py-12 text-center text-slate-500">
                   No clients found
                 </td>
               </tr>
