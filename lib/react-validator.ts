@@ -332,47 +332,83 @@ function findLineNumber(code: string, substring: string): number {
 }
 
 function checkBraceBalance(code: string): { curly: number; paren: number; bracket: number } {
-  // Remove strings and comments to avoid false positives
-  // Process character by character to handle nested template literals correctly
-  let cleaned = ''
+  // Count braces directly, skipping only the CONTENT of strings/comments
+  // We keep all braces {} () [] and just ignore string contents
+  let curly = 0
+  let paren = 0
+  let bracket = 0
   let i = 0
 
   while (i < code.length) {
-    // Single line comment
-    if (code[i] === '/' && code[i + 1] === '/') {
+    const char = code[i]
+    const next = code[i + 1]
+
+    // Single line comment - skip to end of line
+    if (char === '/' && next === '/') {
       while (i < code.length && code[i] !== '\n') i++
       continue
     }
 
-    // Multi-line comment
-    if (code[i] === '/' && code[i + 1] === '*') {
+    // Multi-line comment - skip to */
+    if (char === '/' && next === '*') {
       i += 2
       while (i < code.length - 1 && !(code[i] === '*' && code[i + 1] === '/')) i++
       i += 2
       continue
     }
 
-    // Template literal - skip entire thing including nested ${}
-    if (code[i] === '`') {
-      i++
-      let depth = 0
+    // Template literal - skip content but COUNT braces in ${} expressions
+    if (char === '`') {
+      i++ // skip opening `
       while (i < code.length) {
         if (code[i] === '\\') {
           i += 2 // skip escaped char
           continue
         }
         if (code[i] === '$' && code[i + 1] === '{') {
-          depth++
-          i += 2
+          i += 2 // skip ${
+          curly++ // count the opening {
+          // Now we're inside ${...}, count braces until matching }
+          let innerDepth = 1
+          while (i < code.length && innerDepth > 0) {
+            const c = code[i]
+            // Handle nested strings inside ${}
+            if (c === '"' || c === "'") {
+              const quote = c
+              i++
+              while (i < code.length && code[i] !== quote) {
+                if (code[i] === '\\') i++
+                i++
+              }
+              i++ // skip closing quote
+              continue
+            }
+            // Handle nested template literals inside ${}
+            if (c === '`') {
+              // Recursive: skip nested template literal
+              i++
+              let nestedBacktickDepth = 1
+              while (i < code.length && nestedBacktickDepth > 0) {
+                if (code[i] === '\\') { i += 2; continue }
+                if (code[i] === '`') { nestedBacktickDepth--; i++; continue }
+                // Simplified: don't handle ${} inside nested template literals
+                i++
+              }
+              continue
+            }
+            // Count braces
+            if (c === '{') { curly++; innerDepth++ }
+            else if (c === '}') { curly--; innerDepth-- }
+            else if (c === '(') paren++
+            else if (c === ')') paren--
+            else if (c === '[') bracket++
+            else if (c === ']') bracket--
+            i++
+          }
           continue
         }
-        if (code[i] === '}' && depth > 0) {
-          depth--
-          i++
-          continue
-        }
-        if (code[i] === '`' && depth === 0) {
-          i++
+        if (code[i] === '`') {
+          i++ // skip closing `
           break
         }
         i++
@@ -380,49 +416,43 @@ function checkBraceBalance(code: string): { curly: number; paren: number; bracke
       continue
     }
 
-    // Double quote string
-    if (code[i] === '"') {
+    // Double quote string - skip content entirely
+    if (char === '"') {
       i++
       while (i < code.length && code[i] !== '"') {
         if (code[i] === '\\') i++
         i++
       }
-      i++
+      i++ // skip closing "
       continue
     }
 
-    // Single quote string
-    if (code[i] === "'") {
+    // Single quote string - skip content entirely
+    if (char === "'") {
       i++
       while (i < code.length && code[i] !== "'") {
         if (code[i] === '\\') i++
         i++
       }
-      i++
+      i++ // skip closing '
       continue
     }
 
-    cleaned += code[i]
-    i++
-  }
+    // JSX string attribute - already handled by " and ' above
 
-  // Debug: show what we're counting
-  console.log(`[checkBraceBalance] Cleaned code length: ${cleaned.length}`)
-  console.log(`[checkBraceBalance] Cleaned first 300 chars: ${cleaned.slice(0, 300)}`)
-  console.log(`[checkBraceBalance] Cleaned last 300 chars: ${cleaned.slice(-300)}`)
-
-  let curly = 0
-  let paren = 0
-  let bracket = 0
-
-  for (const char of cleaned) {
+    // Count regular braces
     if (char === '{') curly++
     else if (char === '}') curly--
     else if (char === '(') paren++
     else if (char === ')') paren--
     else if (char === '[') bracket++
     else if (char === ']') bracket--
+
+    i++
   }
+
+  // Debug
+  console.log(`[checkBraceBalance] Final counts: curly=${curly}, paren=${paren}, bracket=${bracket}`)
 
   return { curly, paren, bracket }
 }
@@ -489,9 +519,6 @@ export function validateMinimal(code: string): MinimalValidationResult {
 
   // 2. Check for balanced braces
   const balance = checkBraceBalance(cleanedCode)
-  console.log(`[Validator] Brace balance: curly=${balance.curly}, paren=${balance.paren}, bracket=${balance.bracket}`)
-  console.log(`[Validator] Code length: ${cleanedCode.length}, first 200 chars: ${cleanedCode.slice(0, 200)}`)
-  console.log(`[Validator] Last 200 chars: ${cleanedCode.slice(-200)}`)
   if (balance.curly !== 0) {
     const direction = balance.curly > 0 ? 'missing closing' : 'extra closing'
     errors.push(`Unbalanced curly braces: ${Math.abs(balance.curly)} ${direction}`)
