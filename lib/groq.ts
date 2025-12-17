@@ -104,7 +104,7 @@ ${transcript}
 `
 
   const response = await groq.chat.completions.create({
-    model: 'openai/gpt-oss-120b',
+    model: 'llama-3.3-70b-versatile',
     messages: [
       { role: 'system', content: getBriefPrompt() },
       { role: 'user', content: userMessage }
@@ -161,13 +161,13 @@ export async function sanitizeReactCode(rawCode: string): Promise<SanitizationRe
       }
 
       const response = await groq.chat.completions.create({
-        model: 'openai/gpt-oss-120b',
+        model: 'llama-3.3-70b-versatile', // 32k output tokens (gpt-oss-120b only has 8k)
         messages: [
           { role: 'system', content: getSanitizeStrictPrompt() },
           { role: 'user', content: userMessage }
         ],
         temperature: 0.1,
-        max_tokens: 50000 // Large output for long components (400+ lines)
+        max_tokens: 32000 // llama-3.3-70b supports up to 32768 output tokens
       })
 
       const llmOutput = response.choices[0]?.message?.content
