@@ -402,6 +402,9 @@ export function validateMinimal(code: string): MinimalValidationResult {
     cleanedCode = cleanedCode.replace(markdownStart, '').replace(markdownEnd, '').trim()
   }
 
+  // Strip "// END OF CODE" marker if present
+  cleanedCode = cleanedCode.replace(/\n?\/\/\s*END\s*OF\s*CODE\s*$/i, '').trim()
+
   // 1. Check for dangerous code
   if (/\beval\s*\(/.test(cleanedCode)) {
     errors.push('Contains eval() - dangerous code not allowed')

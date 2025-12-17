@@ -155,9 +155,10 @@ export async function sanitizeReactCode(rawCode: string): Promise<SanitizationRe
 
     try {
       // Build the user message - on retry, include error feedback
-      let userMessage = rawCode
+      const lineCount = rawCode.split('\n').length
+      let userMessage = `[Code: ${lineCount} lignes - output attendu de taille similaire]\n\n${rawCode}`
       if (attempt > 1 && warnings.length > 0) {
-        userMessage = `ERREURS DE LA TENTATIVE PRÉCÉDENTE:\n${warnings.join('\n')}\n\nCorrige ces erreurs dans le code suivant:\n\n${rawCode}`
+        userMessage = `ERREURS DE LA TENTATIVE PRÉCÉDENTE:\n${warnings.join('\n')}\n\nCorrige ces erreurs dans le code suivant (${lineCount} lignes):\n\n${rawCode}`
       }
 
       const response = await groq.chat.completions.create({
