@@ -44,9 +44,10 @@ Le code doit:
 - Se terminer par: }
 - Puis la ligne: // END OF CODE
 
-## EXEMPLE
+## EXEMPLE DE TRANSFORMATION
 
---- INPUT ---
+Si on te donne CE CODE:
+
 "use client";
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
@@ -71,9 +72,9 @@ export default function HomePage({ title }: Props) {
     </div>
   );
 }
---- END INPUT ---
 
---- OUTPUT ---
+Tu dois répondre EXACTEMENT CECI (rien d'autre):
+
 function Preview() {
   const [count, setCount] = React.useState(0);
 
@@ -91,4 +92,3 @@ function Preview() {
   );
 }
 // END OF CODE
---- END OUTPUT ---
