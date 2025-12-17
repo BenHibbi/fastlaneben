@@ -100,9 +100,10 @@ export function ReactPreviewRenderer({
         <meta http-equiv="Content-Security-Policy" content="
           default-src 'none';
           script-src 'unsafe-inline' https://unpkg.com;
-          style-src 'unsafe-inline';
+          style-src 'unsafe-inline' https://fonts.googleapis.com;
+          style-src-elem 'unsafe-inline' https://fonts.googleapis.com;
           img-src data: https:;
-          font-src https:;
+          font-src https://fonts.gstatic.com https:;
           connect-src 'none';
           frame-src 'none';
           object-src 'none';
