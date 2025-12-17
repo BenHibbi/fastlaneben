@@ -27,7 +27,7 @@ export const ADD_ONS: AddOnTier[] = [
         emoji: '🗓️',
         name: 'Online Booking',
         description: 'Let customers book without calling',
-        price: 25,
+        price: 15,
         features: ['Calendly / Acuity / Tidycal', 'No payments handled', 'No custom logic']
       },
       {
@@ -35,7 +35,7 @@ export const ADD_ONS: AddOnTier[] = [
         emoji: '📍',
         name: 'Local SEO Boost',
         description: 'Improve your visibility on Google Maps',
-        price: 20,
+        price: 15,
         features: ['Google Business Profile optimization', 'Local schema + map embed', 'NAP consistency']
       },
       {
@@ -43,7 +43,7 @@ export const ADD_ONS: AddOnTier[] = [
         emoji: '📞',
         name: 'Click-to-Call Boost',
         description: 'Turn visits into phone calls',
-        price: 10,
+        price: 5,
         features: ['Sticky call button', 'Mobile-first UX', 'Simple tracking (no call center)']
       }
     ]
@@ -57,7 +57,7 @@ export const ADD_ONS: AddOnTier[] = [
         emoji: '🖼️',
         name: 'Premium Image Pack',
         description: 'Professional stock photos for your site',
-        price: 30,
+        price: 10,
         features: ['10 HD stock photos', 'Licensed for commercial use', 'Curated for your industry']
       },
       {
@@ -65,7 +65,7 @@ export const ADD_ONS: AddOnTier[] = [
         emoji: '⭐',
         name: 'Trust Pack',
         description: 'Build credibility with social proof',
-        price: 25,
+        price: 5,
         features: ['Google Reviews embed', 'Testimonial section', 'Trust badges']
       },
       {
@@ -73,7 +73,7 @@ export const ADD_ONS: AddOnTier[] = [
         emoji: '📧',
         name: 'Lead Capture Form',
         description: 'Collect leads with a custom form',
-        price: 20,
+        price: 5,
         features: ['Email notifications', 'Form validation', 'Spam protection']
       }
     ]
@@ -87,7 +87,7 @@ export const ADD_ONS: AddOnTier[] = [
         emoji: '📄',
         name: 'Extra Page',
         description: 'Add another page to your site',
-        price: 50,
+        price: 15,
         features: ['1 additional page', 'Same design system', 'Full customization'],
         limitations: ['Max 3 extra pages total']
       },
@@ -96,7 +96,7 @@ export const ADD_ONS: AddOnTier[] = [
         emoji: '🌍',
         name: 'Multilingual Support',
         description: 'Reach customers in their language',
-        price: 75,
+        price: 20,
         features: ['2 languages included', 'Language switcher', 'SEO for each language'],
         limitations: ['Max 3 languages total']
       },
@@ -105,7 +105,7 @@ export const ADD_ONS: AddOnTier[] = [
         emoji: '🤖',
         name: 'AI Chat Assistant',
         description: 'Answer customer questions 24/7',
-        price: 100,
+        price: 29,
         features: ['Trained on your business', 'Lead capture', 'FAQ automation'],
         warning: 'Requires business info'
       }
