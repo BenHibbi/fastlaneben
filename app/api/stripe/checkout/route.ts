@@ -102,9 +102,6 @@ export async function POST(request: NextRequest) {
       },
       success_url: `${baseUrl}/client?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${baseUrl}/client`,
-      automatic_tax: {
-        enabled: true
-      },
       billing_address_collection: 'required',
       allow_promotion_codes: true
     })
