@@ -31,6 +31,7 @@ ${code}
 // Expose component for renderer - try multiple patterns
 const __previewExport =
   typeof Preview !== 'undefined' ? Preview :
+  typeof Design !== 'undefined' ? Design :
   typeof App !== 'undefined' ? App :
   typeof Main !== 'undefined' ? Main :
   typeof HomePage !== 'undefined' ? HomePage :
@@ -38,6 +39,8 @@ const __previewExport =
   typeof Page !== 'undefined' ? Page :
   typeof LandingPage !== 'undefined' ? LandingPage :
   typeof Website !== 'undefined' ? Website :
+  typeof Component !== 'undefined' ? Component :
+  typeof Site !== 'undefined' ? Site :
   null;
 window.__FASTLANE_PREVIEW__ = __previewExport;`
 
