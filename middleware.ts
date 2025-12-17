@@ -1,6 +1,14 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '')
+  .split(',')
+  .map(e => e.trim().toLowerCase())
+
+function isAdminEmail(email: string | undefined | null): boolean {
+  return ADMIN_EMAILS.includes(email?.toLowerCase() || '')
+}
+
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
@@ -29,8 +37,31 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  // Refresh session if needed - this updates the cookies
-  await supabase.auth.getUser()
+  // Refresh session and get user
+  const { data: { user } } = await supabase.auth.getUser()
+  const pathname = request.nextUrl.pathname
+
+  // Protect /client routes - require authentication
+  if (pathname.startsWith('/client')) {
+    if (!user) {
+      const loginUrl = new URL('/login', request.url)
+      loginUrl.searchParams.set('next', pathname)
+      return NextResponse.redirect(loginUrl)
+    }
+  }
+
+  // Protect /admin routes - require admin role
+  if (pathname.startsWith('/admin')) {
+    if (!user) {
+      const loginUrl = new URL('/login', request.url)
+      loginUrl.searchParams.set('next', pathname)
+      return NextResponse.redirect(loginUrl)
+    }
+    if (!isAdminEmail(user.email)) {
+      // Redirect non-admins to client portal
+      return NextResponse.redirect(new URL('/client', request.url))
+    }
+  }
 
   return supabaseResponse
 }

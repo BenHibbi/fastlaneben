@@ -100,7 +100,7 @@ export async function POST(request: NextRequest) {
           business_name: client.business_name || ''
         }
       },
-      success_url: `${baseUrl}/client/final?session_id={CHECKOUT_SESSION_ID}`,
+      success_url: `${baseUrl}/client?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${baseUrl}/client`,
       automatic_tax: {
         enabled: true
