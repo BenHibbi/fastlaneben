@@ -41,9 +41,12 @@ const FORBIDDEN_PATTERNS = {
     /^['"]use client['"];?\s*$/gm,
     /^['"]use server['"];?\s*$/gm,
   ],
-  // TypeScript-specific - REMOVED because esbuild handles TypeScript fine
-  // We'll just let esbuild deal with it
-  typescript: [],
+  // TypeScript-specific - these are fixable by auto-fix, not blocking errors
+  // esbuild handles most TS fine, we just flag them for cleaning
+  typescript: [
+    /^interface\s+\w+\s*\{/gm,
+    /^type\s+\w+\s*=\s*/gm,
+  ],
   // Dangerous code - only the really dangerous stuff
   dangerous: [
     /\beval\s*\(/g,
@@ -84,7 +87,7 @@ export function validateSanitizedCode(code: string): ValidationResult {
             type: category as ValidationError['type'],
             message: `Found forbidden ${category}: "${match.substring(0, 50)}${match.length > 50 ? '...' : ''}"`,
             line: lineNum,
-            fixable: ['import', 'export', 'directive', 'markdown'].includes(category),
+            fixable: ['import', 'export', 'directive', 'markdown', 'typescript'].includes(category),
           })
         }
       }
