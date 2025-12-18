@@ -31,106 +31,8 @@ async function getAuthenticatedUser() {
   return user
 }
 
-// Compilation result type
-interface CompilationResult {
-  success: true
-  code: string
-}
-
-interface CompilationError {
-  success: false
-  error: string
-  details?: string
-  line?: number
-  column?: number
-}
-
-// Compile sanitized TSX/JSX into a self-contained IIFE that exposes Preview on window
-async function compilePreviewCode(code: string): Promise<CompilationResult | CompilationError> {
-  const { transform } = await import('esbuild')
-
-  const wrappedCode = `// Preview bundle (React provided as global)
-${code}
-
-// Expose component for renderer - try multiple patterns
-const __previewExport =
-  typeof Preview !== 'undefined' ? Preview :
-  typeof Design !== 'undefined' ? Design :
-  typeof App !== 'undefined' ? App :
-  typeof Main !== 'undefined' ? Main :
-  typeof HomePage !== 'undefined' ? HomePage :
-  typeof Home !== 'undefined' ? Home :
-  typeof Page !== 'undefined' ? Page :
-  typeof LandingPage !== 'undefined' ? LandingPage :
-  typeof Website !== 'undefined' ? Website :
-  typeof Component !== 'undefined' ? Component :
-  typeof Site !== 'undefined' ? Site :
-  null;
-window.__FASTLANE_PREVIEW__ = __previewExport;`
-
-  try {
-    const result = await transform(wrappedCode, {
-      loader: 'tsx',
-      format: 'iife',
-      globalName: 'PreviewBundle',
-      target: 'es2018',
-      jsxFactory: 'React.createElement',
-      jsxFragment: 'React.Fragment',
-      banner: `const React = window.React;
-const ReactDOM = window.ReactDOM;
-// Lucide icons shim - returns empty span components
-const LucideShim = new Proxy({}, {
-  get: function(target, prop) {
-    if (typeof prop === 'string' && prop !== 'then') {
-      return function LucideIcon(props) {
-        return React.createElement('span', {
-          className: props?.className || '',
-          style: { display: 'inline-block', width: props?.size || 24, height: props?.size || 24 }
-        });
-      };
-    }
-    return undefined;
-  }
-});
-const require = function(mod) {
-  if (mod === 'react') return window.React;
-  if (mod === 'react-dom') return window.ReactDOM;
-  if (mod === 'lucide-react') return LucideShim;
-  console.warn('Module not available:', mod);
-  return {};
-};
-const exports = {};
-const module = { exports: exports };
-`,
-      footer: 'window.__FASTLANE_PREVIEW__ = typeof window.__FASTLANE_PREVIEW__ !== "undefined" ? window.__FASTLANE_PREVIEW__ : (typeof PreviewBundle !== "undefined" ? (PreviewBundle.default || PreviewBundle.Preview || null) : null);',
-      minify: true,
-    })
-
-    return { success: true, code: result.code }
-  } catch (err: unknown) {
-    // Parse esbuild error for detailed info
-    const errorMessage = err instanceof Error ? err.message : String(err)
-
-    // esbuild errors often have format: "file:line:column: error message"
-    const match = errorMessage.match(/:(\d+):(\d+):\s*(.+)/)
-    if (match) {
-      const [, lineStr, colStr, details] = match
-      return {
-        success: false,
-        error: 'Compilation failed',
-        details: details.trim(),
-        line: parseInt(lineStr, 10) - 1, // Adjust for header offset
-        column: parseInt(colStr, 10)
-      }
-    }
-
-    return {
-      success: false,
-      error: 'Compilation failed',
-      details: errorMessage
-    }
-  }
-}
+// No server-side compilation - client handles it with Babel standalone
+// This is more tolerant of syntax variations and gives better error feedback
 
 // POST - Admin posts React code (sanitizes with LLM)
 export async function POST(request: NextRequest) {
@@ -222,29 +124,8 @@ export async function POST(request: NextRequest) {
       throw err
     }
 
-    // Compile sanitized code server-side (no Babel in client)
-    const compilationResult = await compilePreviewCode(sanitizationResult.code)
-
-    if (!compilationResult.success) {
-      previewLogger.error('Failed to compile preview code', {
-        clientId,
-        error: compilationResult.error,
-        details: compilationResult.details,
-        line: compilationResult.line
-      })
-      return NextResponse.json(
-        {
-          error: 'Preview code could not be compiled',
-          code: ERROR_CODES.COMPILATION_FAILED,
-          details: compilationResult.details,
-          line: compilationResult.line,
-          column: compilationResult.column
-        },
-        { status: 400 }
-      )
-    }
-
-    const compiledCode = compilationResult.code
+    // Pass sanitized code directly - client will compile with Babel standalone
+    const compiledCode = sanitizationResult.code
     const processingTimeMs = Date.now() - startTime
 
     // Save new preview

@@ -90,7 +90,8 @@ export function ReactPreviewRenderer({
   const viewportWidth = viewport === 'desktop' ? containerWidth || 1440 : PREVIEW_CONFIG.MOBILE_WIDTH
   const previewScript = preview.sanitizedCode
 
-  // Create the HTML content for the iframe with CSP and precompiled bundle
+  // Create the HTML content for the iframe with Babel standalone for client-side compilation
+  // This is more tolerant of syntax variations than server-side esbuild
   const iframeContent = `
     <!DOCTYPE html>
     <html>
@@ -99,7 +100,7 @@ export function ReactPreviewRenderer({
         <meta name="viewport" content="width=${viewportWidth}, initial-scale=1.0">
         <meta http-equiv="Content-Security-Policy" content="
           default-src 'none';
-          script-src 'unsafe-inline' https://unpkg.com;
+          script-src 'unsafe-inline' 'unsafe-eval' https://unpkg.com;
           style-src 'unsafe-inline' https://fonts.googleapis.com;
           style-src-elem 'unsafe-inline' https://fonts.googleapis.com;
           img-src data: https:;
@@ -112,28 +113,66 @@ export function ReactPreviewRenderer({
         ">
         <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
         <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+        <script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+        <script src="https://unpkg.com/tailwindcss-cdn@3.4.14/tailwindcss-with-preflight.js"></script>
         <style>
           body { margin: 0; font-family: system-ui, sans-serif; }
           #root { min-height: 100vh; }
+          .error-display { padding: 20px; color: #dc2626; font-family: monospace; background: #fef2f2; border: 1px solid #fecaca; margin: 10px; border-radius: 8px; }
+          .error-display strong { display: block; margin-bottom: 8px; }
+          .error-display pre { white-space: pre-wrap; word-break: break-word; margin: 0; font-size: 12px; }
         </style>
       </head>
       <body>
         <div id="root"></div>
         <script>
-${previewScript}
-          (function renderPreview() {
+          (function() {
             const rootEl = document.getElementById('root');
-            const Preview = (window).__FASTLANE_PREVIEW__;
-            if (!Preview) {
-              rootEl.innerHTML = '<div style="padding: 20px; color: red; font-family: monospace;"><strong>Error:</strong> Preview component not found.</div>';
-              return;
-            }
+
+            // The sanitized JSX code from server
+            const jsxCode = ${JSON.stringify(previewScript)};
+
+            // Wrap code to expose Preview component
+            const wrappedCode = jsxCode + \`
+
+              // Expose component for renderer
+              window.__FASTLANE_PREVIEW__ =
+                typeof Preview !== 'undefined' ? Preview :
+                typeof Design !== 'undefined' ? Design :
+                typeof App !== 'undefined' ? App :
+                typeof Main !== 'undefined' ? Main :
+                typeof HomePage !== 'undefined' ? HomePage :
+                typeof Home !== 'undefined' ? Home :
+                typeof Page !== 'undefined' ? Page :
+                typeof Component !== 'undefined' ? Component :
+                null;
+            \`;
+
             try {
-              const root = (window).ReactDOM.createRoot(rootEl);
-              root.render((window).React.createElement(Preview));
+              // Compile JSX to JS using Babel standalone
+              const compiled = Babel.transform(wrappedCode, {
+                presets: ['react'],
+                filename: 'preview.jsx'
+              }).code;
+
+              // Execute the compiled code
+              const execFunc = new Function('React', 'ReactDOM', compiled);
+              execFunc(window.React, window.ReactDOM);
+
+              // Render the component
+              const PreviewComponent = window.__FASTLANE_PREVIEW__;
+              if (!PreviewComponent) {
+                rootEl.innerHTML = '<div class="error-display"><strong>Error:</strong><pre>Preview component not found. Make sure the component is named Preview.</pre></div>';
+                return;
+              }
+
+              const root = ReactDOM.createRoot(rootEl);
+              root.render(React.createElement(PreviewComponent));
+
             } catch (e) {
+              console.error('Preview error:', e);
               const message = e && e.message ? e.message : String(e);
-              rootEl.innerHTML = '<div style="padding: 20px; color: red; font-family: monospace;"><strong>Error rendering preview:</strong><br/>' + message + '</div>';
+              rootEl.innerHTML = '<div class="error-display"><strong>Error rendering preview:</strong><pre>' + message.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</pre></div>';
             }
           })();
         </script>
