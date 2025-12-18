@@ -7,30 +7,30 @@ import { validateMinimal, looksLikeReactCode, attemptBraceRepair } from './react
 function fixCommonLlmMistakes(code: string): string {
   let fixed = code
 
-  // Fix })) } pattern - often LLM adds extra ) after .map() or similar
-  fixed = fixed.replace(/\}\)\)\s*\n\s*\}/g, '})\n}')
-  fixed = fixed.replace(/\}\)\)\s*\}/g, '})}')
+  // LLM often adds extra closing brackets at the end from incorrectly closing .map() callbacks
+  // The actual pattern we see in the error is:
+  //   414 |   );     <- correct return close
+  //   415 | }        <- should be the final function close
+  //   416 | }        <- EXTRA brace that shouldn't exist
+  //
+  // Or sometimes:
+  //   414 |   );
+  //   415 |   })     <- EXTRA from .map() callback
+  //   416 | }        <- correct function close
 
-  // Fix })  } pattern with newline - stray ) before closing brace
-  // This catches: }) \n } which should just be }\n}
-  fixed = fixed.replace(/\}\)\s*\n\s*\}/g, '}\n}')
+  // Pattern 1: Remove extra }) between return close and function close
+  // );  \n  })  \n  } -> );  \n  }
+  fixed = fixed.replace(/(\);)\s*\n\s*\}\)\s*\n(\s*\})$/g, '$1\n$2')
 
-  // Fix )))} pattern
-  fixed = fixed.replace(/\)\)\)\}/g, '))}')
+  // Pattern 2: Same with })) (two extra closings)
+  fixed = fixed.replace(/(\);)\s*\n\s*\}\)\)\s*\n(\s*\})$/g, '$1\n$2')
 
-  // Fix )} at the end before final } - often leftover from .map()
-  // Pattern: );  followed by }) on next line, then } - the )} is extra
-  fixed = fixed.replace(/\);\s*\n\s*\}\)\s*\n\s*\}/g, ');\n}')
+  // Pattern 3: Double closing brace at end (no }) just two })
+  // ); \n } \n } -> ); \n }
+  fixed = fixed.replace(/(\);)\s*\n(\s*\})\s*\n\s*\}\s*$/g, '$1\n$2')
 
   // Fix cases where return statement has extra parens: return ((...))
   fixed = fixed.replace(/return\s*\(\s*\(/g, 'return (')
-
-  // Fix stray }) before final } of function
-  // This is the specific pattern: </div>\n  );\n})\n}
-  fixed = fixed.replace(/\);\s*\n\}\)\s*\n\}/g, ');\n}')
-
-  // Another common pattern: </tag>\n  );\n  })\n}
-  fixed = fixed.replace(/\);\s*\n\s*\}\)\s*\n\}/g, ');\n}')
 
   return fixed
 }
