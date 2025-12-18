@@ -531,6 +531,34 @@ export function validateMinimal(code: string): MinimalValidationResult {
   // Strip "// END OF CODE" marker if present
   cleanedCode = cleanedCode.replace(/\n?\/\/\s*END\s*OF\s*CODE\s*$/i, '').trim()
 
+  // Replace problematic unicode characters that esbuild can't handle
+  // These are common icon replacements the LLM might use
+  const unicodeReplacements: [RegExp, string][] = [
+    [/✕/g, 'x'],      // multiplication X → x
+    [/✖/g, 'x'],      // heavy multiplication X → x
+    [/✗/g, 'x'],      // ballot X → x
+    [/✘/g, 'x'],      // heavy ballot X → x
+    [/×/g, 'x'],      // multiplication sign → x
+    [/☰/g, '='],      // trigram menu → =
+    [/≡/g, '='],      // identical to → =
+    [/→/g, '->'],     // arrow → ->
+    [/←/g, '<-'],     // arrow ← <-
+    [/↑/g, '^'],      // arrow ↑ ^
+    [/↓/g, 'v'],      // arrow ↓ v
+    [/✓/g, 'OK'],     // check mark → OK
+    [/✔/g, 'OK'],     // heavy check mark → OK
+    [/★/g, '*'],      // star → *
+    [/☆/g, '*'],      // white star → *
+    [/♥/g, '<3'],     // heart → <3
+    [/❤/g, '<3'],     // heavy heart → <3
+    [/•/g, '-'],      // bullet → -
+    [/…/g, '...'],    // ellipsis → ...
+  ]
+
+  for (const [pattern, replacement] of unicodeReplacements) {
+    cleanedCode = cleanedCode.replace(pattern, replacement)
+  }
+
   // 1. Check for dangerous code
   if (/\beval\s*\(/.test(cleanedCode)) {
     errors.push('Contains eval() - dangerous code not allowed')

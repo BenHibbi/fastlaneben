@@ -11,7 +11,7 @@ Transform the input code by:
 4. RENAME the main component to `Preview`
 5. PREFIX all hooks with `React.` (useState → React.useState)
 6. REPLACE imported UI components (Button, Card) with native HTML (button, div)
-7. REPLACE lucide-react icons with emoji or unicode symbols (Heart → ♥, Menu → ☰, X → ✕, ArrowRight → →, etc.)
+7. REPLACE lucide-react icons with simple text or HTML entities in a span (Heart → "♥", Menu → "≡", X → "×", ArrowRight → "→", Check → "✓", Star → "★", etc.). IMPORTANT: Use the actual character in a string, like `<span>×</span>` not unicode escapes.
 
 ## CRITICAL RULES
 
