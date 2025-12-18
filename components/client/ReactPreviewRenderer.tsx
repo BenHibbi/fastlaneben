@@ -100,12 +100,12 @@ export function ReactPreviewRenderer({
         <meta name="viewport" content="width=${viewportWidth}, initial-scale=1.0">
         <meta http-equiv="Content-Security-Policy" content="
           default-src 'none';
-          script-src 'unsafe-inline' 'unsafe-eval' https://unpkg.com;
-          style-src 'unsafe-inline' https://fonts.googleapis.com;
-          style-src-elem 'unsafe-inline' https://fonts.googleapis.com;
+          script-src 'unsafe-inline' 'unsafe-eval' https://unpkg.com https://cdn.tailwindcss.com;
+          style-src 'unsafe-inline' https://fonts.googleapis.com https://cdn.tailwindcss.com;
+          style-src-elem 'unsafe-inline' https://fonts.googleapis.com https://cdn.tailwindcss.com;
           img-src data: https:;
           font-src https://fonts.gstatic.com https:;
-          connect-src 'none';
+          connect-src https://cdn.tailwindcss.com;
           frame-src 'none';
           object-src 'none';
           base-uri 'none';
@@ -114,7 +114,7 @@ export function ReactPreviewRenderer({
         <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
         <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
         <script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
-        <script src="https://unpkg.com/tailwindcss-cdn@3.4.14/tailwindcss-with-preflight.js"></script>
+        <script src="https://cdn.tailwindcss.com"></script>
         <style>
           body { margin: 0; font-family: system-ui, sans-serif; }
           #root { min-height: 100vh; }
