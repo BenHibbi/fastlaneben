@@ -511,12 +511,22 @@ export function validateMinimal(code: string): MinimalValidationResult {
   const errors: string[] = []
   let cleanedCode = code
 
-  // Strip markdown wrappers if present
+  // Strip markdown wrappers if present - be aggressive about removing backticks
+  // Handle various markdown patterns:
+  // - ```jsx at start, ``` at end
+  // - Just ``` at end (LLM sometimes adds this without opening)
+  // - ```javascript, ```tsx, etc
   const markdownStart = /^```(?:jsx?|tsx?|javascript|typescript)?\s*\n?/
   const markdownEnd = /\n?```\s*$/
-  if (markdownStart.test(cleanedCode) || markdownEnd.test(cleanedCode)) {
-    cleanedCode = cleanedCode.replace(markdownStart, '').replace(markdownEnd, '').trim()
-  }
+
+  // Also strip standalone backticks that might appear anywhere at the end
+  cleanedCode = cleanedCode.replace(markdownStart, '')
+  cleanedCode = cleanedCode.replace(markdownEnd, '')
+
+  // Extra safety: strip any trailing ``` even without newline
+  cleanedCode = cleanedCode.replace(/```\s*$/, '')
+
+  cleanedCode = cleanedCode.trim()
 
   // Strip "// END OF CODE" marker if present
   cleanedCode = cleanedCode.replace(/\n?\/\/\s*END\s*OF\s*CODE\s*$/i, '').trim()
@@ -584,33 +594,37 @@ export function attemptBraceRepair(
   }
 
   let repaired = code.trim()
+  let parenToAdd = balance.paren
+  let curlyToAdd = balance.curly
 
-  // Check if code looks like it was truncated mid-JSX
-  const lastLine = repaired.split('\n').pop() || ''
-  const endsWithJSX = /<\/\w+>/.test(lastLine) || lastLine.trim().endsWith('>')
+  console.log(`[BraceRepair] Attempting repair: ${curlyToAdd} curly, ${parenToAdd} paren missing`)
 
-  if (!endsWithJSX && balance.curly === 0 && balance.paren === 0) {
-    return null  // Code doesn't look truncated
+  // Analyze what's likely missing based on code structure
+  // Check if code ends with JSX closing tag (likely needs ); to close return)
+  const lastNonEmptyLine = repaired.split('\n').filter(l => l.trim()).pop() || ''
+  const endsWithJSXClose = /<\/\w+>\s*$/.test(lastNonEmptyLine.trim())
+  const hasReturnParen = /return\s*\(/.test(repaired)
+
+  console.log(`[BraceRepair] endsWithJSXClose=${endsWithJSXClose}, hasReturnParen=${hasReturnParen}, lastLine="${lastNonEmptyLine.trim().slice(-30)}"`)
+
+  // If code ends with JSX close tag and has return( but missing parens
+  // we need to add ); to close the return statement
+  if (endsWithJSXClose && hasReturnParen && parenToAdd >= 1) {
+    repaired += '\n  );'
+    parenToAdd -= 1  // ); only adds 1 closing paren (the semicolon is not a paren!)
+    console.log(`[BraceRepair] Added ); for return, parenToAdd now ${parenToAdd}`)
   }
 
-  console.log(`[BraceRepair] Attempting repair: ${balance.curly} curly, ${balance.paren} paren missing`)
-
-  // Add missing closing parentheses (for return statement)
-  if (balance.paren > 0) {
-    // Check if we need ); for the return
-    if (repaired.includes('return (') || repaired.includes('return(')) {
-      repaired += '\n  );'
-      balance = { ...balance, paren: balance.paren - 2 }
-    }
-    // Add remaining parens
-    for (let i = 0; i < balance.paren && i < 5; i++) {
-      repaired += ')'
-    }
+  // Add remaining missing parentheses
+  for (let i = 0; i < parenToAdd && i < 5; i++) {
+    repaired += ')'
+    console.log(`[BraceRepair] Added extra ), ${i + 1}/${parenToAdd}`)
   }
 
   // Add missing closing braces (for function Preview)
-  for (let i = 0; i < balance.curly && i < 3; i++) {
+  for (let i = 0; i < curlyToAdd && i < 3; i++) {
     repaired += '\n}'
+    console.log(`[BraceRepair] Added }, ${i + 1}/${curlyToAdd}`)
   }
 
   // Verify repair worked
@@ -620,6 +634,6 @@ export function attemptBraceRepair(
     return repaired
   }
 
-  console.log('[BraceRepair] Repair failed, still unbalanced:', recheck)
+  console.log(`[BraceRepair] Repair failed, still unbalanced: curly=${recheck.curly}, paren=${recheck.paren}`)
   return null
 }
