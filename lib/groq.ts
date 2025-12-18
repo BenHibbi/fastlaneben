@@ -1,7 +1,7 @@
 import Groq from 'groq-sdk'
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs'
+import { readFileSync } from 'fs'
 import { join } from 'path'
-import { validateMinimal, looksLikeReactCode } from './react-validator'
+import { validateMinimal, looksLikeReactCode, attemptBraceRepair } from './react-validator'
 
 // Custom error class for sanitization failures
 export class SanitizationError extends Error {
@@ -158,21 +158,19 @@ export async function sanitizeReactCode(rawCode: string): Promise<SanitizationRe
     try {
       // Build the user message - on retry, include error feedback
       const lineCount = rawCode.split('\n').length
-      let userMessage = `[Code: ${lineCount} lignes - output attendu de taille similaire]\n\n${rawCode}`
+      let userMessage = `Transform this ${lineCount}-line React component:\n\n${rawCode}`
       if (attempt > 1 && warnings.length > 0) {
-        userMessage = `ERREURS DE LA TENTATIVE PRÉCÉDENTE:\n${warnings.join('\n')}\n\nCorrige ces erreurs dans le code suivant (${lineCount} lignes):\n\n${rawCode}`
+        userMessage = `PREVIOUS ATTEMPT FAILED:\n${warnings.join('\n')}\n\nPlease fix these issues and transform this ${lineCount}-line React component:\n\n${rawCode}`
       }
 
       const response = await groq.chat.completions.create({
-        model: 'openai/gpt-oss-20b',
+        model: 'llama-3.3-70b-versatile',  // More reliable for code transformation
         messages: [
           { role: 'system', content: getSanitizeStrictPrompt() },
           { role: 'user', content: userMessage }
         ],
-        temperature: 1,
-        max_completion_tokens: 32768,
-        top_p: 1,
-        reasoning_effort: 'low'
+        temperature: 0.1,  // Deterministic for code
+        max_tokens: 32768
       })
 
       const llmOutput = response.choices[0]?.message?.content
@@ -214,6 +212,43 @@ export async function sanitizeReactCode(rawCode: string): Promise<SanitizationRe
           attempts: attempt,
           fixesApplied: ['LLM transformation'],
           warnings: []
+        }
+      }
+
+      // Validation failed - try auto-repair for unbalanced braces
+      const hasUnbalancedBraces = validation.errors.some(e => e.includes('Unbalanced'))
+      if (hasUnbalancedBraces) {
+        console.log('[Sanitization] Attempting auto-repair for unbalanced braces')
+
+        // Extract balance from checkBraceBalance (re-run it on the cleaned code)
+        // The balance info is in the error message format: "... (maxCurlyDepth=X at line Y, ...)"
+        // We need to get the actual counts, so let's parse from the error
+        const curlyMatch = validation.errors.find(e => e.includes('curly braces'))
+        const parenMatch = validation.errors.find(e => e.includes('parentheses'))
+
+        const curlyCount = curlyMatch ? parseInt(curlyMatch.match(/(\d+)\s+missing/)?.[1] || '0') : 0
+        const parenCount = parenMatch ? parseInt(parenMatch.match(/(\d+)\s+missing/)?.[1] || '0') : 0
+
+        if (curlyCount > 0 || parenCount > 0) {
+          const repaired = attemptBraceRepair(validation.code, {
+            curly: curlyCount,
+            paren: parenCount,
+            bracket: 0
+          })
+
+          if (repaired) {
+            // Re-validate the repaired code
+            const revalidation = validateMinimal(repaired)
+            if (revalidation.valid) {
+              console.log(`[Sanitization] SUCCESS after auto-repair on attempt ${attempt}`)
+              return {
+                code: revalidation.code,
+                attempts: attempt,
+                fixesApplied: ['LLM transformation', 'Auto brace repair'],
+                warnings: []
+              }
+            }
+          }
         }
       }
 

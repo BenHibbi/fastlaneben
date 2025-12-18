@@ -562,3 +562,64 @@ export function validateMinimal(code: string): MinimalValidationResult {
     code: cleanedCode
   }
 }
+
+/**
+ * Attempt to repair code with missing closing braces
+ * Only works for simple cases where braces are missing at the END
+ */
+export function attemptBraceRepair(
+  code: string,
+  balance: { curly: number; paren: number; bracket: number }
+): string | null {
+  // Only attempt repair if braces are MISSING (positive count)
+  if (balance.curly < 0 || balance.paren < 0 || balance.bracket < 0) {
+    console.log('[BraceRepair] Cannot fix: extra closing braces detected')
+    return null
+  }
+
+  // Only fix small imbalances (likely truncation, not major errors)
+  if (balance.curly > 3 || balance.paren > 5) {
+    console.log('[BraceRepair] Cannot fix: too many missing braces')
+    return null
+  }
+
+  let repaired = code.trim()
+
+  // Check if code looks like it was truncated mid-JSX
+  const lastLine = repaired.split('\n').pop() || ''
+  const endsWithJSX = /<\/\w+>/.test(lastLine) || lastLine.trim().endsWith('>')
+
+  if (!endsWithJSX && balance.curly === 0 && balance.paren === 0) {
+    return null  // Code doesn't look truncated
+  }
+
+  console.log(`[BraceRepair] Attempting repair: ${balance.curly} curly, ${balance.paren} paren missing`)
+
+  // Add missing closing parentheses (for return statement)
+  if (balance.paren > 0) {
+    // Check if we need ); for the return
+    if (repaired.includes('return (') || repaired.includes('return(')) {
+      repaired += '\n  );'
+      balance = { ...balance, paren: balance.paren - 2 }
+    }
+    // Add remaining parens
+    for (let i = 0; i < balance.paren && i < 5; i++) {
+      repaired += ')'
+    }
+  }
+
+  // Add missing closing braces (for function Preview)
+  for (let i = 0; i < balance.curly && i < 3; i++) {
+    repaired += '\n}'
+  }
+
+  // Verify repair worked
+  const recheck = checkBraceBalance(repaired)
+  if (recheck.curly === 0 && recheck.paren === 0 && recheck.bracket === 0) {
+    console.log('[BraceRepair] Successfully repaired code')
+    return repaired
+  }
+
+  console.log('[BraceRepair] Repair failed, still unbalanced:', recheck)
+  return null
+}
