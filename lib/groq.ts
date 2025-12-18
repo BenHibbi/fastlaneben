@@ -3,6 +3,35 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { validateMinimal, looksLikeReactCode, attemptBraceRepair } from './react-validator'
 
+// Try to parse JSX with a simple syntax check
+// Returns null if valid, error message if invalid
+function checkJsxSyntax(code: string): string | null {
+  try {
+    // Use acorn or a simple heuristic check
+    // For now, check for common patterns that indicate broken code
+
+    // Check for })) which often indicates malformed code
+    if (/\}\)\)\s*\}/.test(code)) {
+      return 'Suspicious pattern })) found - likely malformed code'
+    }
+
+    // Check for consecutive closing brackets/parens at weird positions
+    if (/\)\)\)\)/.test(code)) {
+      return 'Too many consecutive closing parentheses'
+    }
+
+    // Check that function Preview exists and is well-formed
+    const previewMatch = code.match(/function\s+Preview\s*\([^)]*\)\s*\{/)
+    if (!previewMatch) {
+      return 'No valid Preview function declaration found'
+    }
+
+    return null // Valid
+  } catch {
+    return 'Syntax check failed'
+  }
+}
+
 // Custom error class for sanitization failures
 export class SanitizationError extends Error {
   public readonly code: string
@@ -206,6 +235,14 @@ export async function sanitizeReactCode(rawCode: string): Promise<SanitizationRe
       const validation = validateMinimal(llmOutput)
 
       if (validation.valid) {
+        // Additional syntax check for common LLM mistakes
+        const syntaxError = checkJsxSyntax(validation.code)
+        if (syntaxError) {
+          console.log(`[Sanitization] Syntax check failed: ${syntaxError}`)
+          warnings.push(syntaxError)
+          continue
+        }
+
         console.log(`[Sanitization] SUCCESS on attempt ${attempt}`)
         return {
           code: validation.code, // Use cleaned code (markdown stripped)
@@ -246,6 +283,14 @@ export async function sanitizeReactCode(rawCode: string): Promise<SanitizationRe
             // Re-validate the repaired code
             const revalidation = validateMinimal(repaired)
             if (revalidation.valid) {
+              // Additional syntax check
+              const syntaxError = checkJsxSyntax(revalidation.code)
+              if (syntaxError) {
+                console.log(`[Sanitization] Post-repair syntax check failed: ${syntaxError}`)
+                warnings.push(syntaxError)
+                continue
+              }
+
               console.log(`[Sanitization] SUCCESS after auto-repair on attempt ${attempt}`)
               return {
                 code: revalidation.code,
