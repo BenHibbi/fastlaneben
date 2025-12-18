@@ -8,16 +8,29 @@ function fixCommonLlmMistakes(code: string): string {
   let fixed = code
 
   // Fix })) } pattern - often LLM adds extra ) after .map() or similar
-  // Pattern: })) followed by } on next line (or same line with space)
-  // This usually means there's an extra ) somewhere
   fixed = fixed.replace(/\}\)\)\s*\n\s*\}/g, '})\n}')
   fixed = fixed.replace(/\}\)\)\s*\}/g, '})}')
+
+  // Fix })  } pattern with newline - stray ) before closing brace
+  // This catches: }) \n } which should just be }\n}
+  fixed = fixed.replace(/\}\)\s*\n\s*\}/g, '}\n}')
 
   // Fix )))} pattern
   fixed = fixed.replace(/\)\)\)\}/g, '))}')
 
+  // Fix )} at the end before final } - often leftover from .map()
+  // Pattern: );  followed by }) on next line, then } - the )} is extra
+  fixed = fixed.replace(/\);\s*\n\s*\}\)\s*\n\s*\}/g, ');\n}')
+
   // Fix cases where return statement has extra parens: return ((...))
   fixed = fixed.replace(/return\s*\(\s*\(/g, 'return (')
+
+  // Fix stray }) before final } of function
+  // This is the specific pattern: </div>\n  );\n})\n}
+  fixed = fixed.replace(/\);\s*\n\}\)\s*\n\}/g, ');\n}')
+
+  // Another common pattern: </tag>\n  );\n  })\n}
+  fixed = fixed.replace(/\);\s*\n\s*\}\)\s*\n\}/g, ');\n}')
 
   return fixed
 }
