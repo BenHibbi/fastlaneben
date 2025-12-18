@@ -217,17 +217,23 @@ export async function sanitizeReactCode(rawCode: string): Promise<SanitizationRe
 
       // Validation failed - try auto-repair for unbalanced braces
       const hasUnbalancedBraces = validation.errors.some(e => e.includes('Unbalanced'))
+      console.log(`[Sanitization] hasUnbalancedBraces=${hasUnbalancedBraces}, errors:`, validation.errors)
+
       if (hasUnbalancedBraces) {
         console.log('[Sanitization] Attempting auto-repair for unbalanced braces')
 
-        // Extract balance from checkBraceBalance (re-run it on the cleaned code)
-        // The balance info is in the error message format: "... (maxCurlyDepth=X at line Y, ...)"
-        // We need to get the actual counts, so let's parse from the error
+        // Extract balance from error messages
+        // Format: "Unbalanced curly braces: 1 missing closing (maxCurlyDepth=...)"
         const curlyMatch = validation.errors.find(e => e.includes('curly braces'))
         const parenMatch = validation.errors.find(e => e.includes('parentheses'))
 
+        // Parse "X missing" from the error message
         const curlyCount = curlyMatch ? parseInt(curlyMatch.match(/(\d+)\s+missing/)?.[1] || '0') : 0
         const parenCount = parenMatch ? parseInt(parenMatch.match(/(\d+)\s+missing/)?.[1] || '0') : 0
+
+        console.log(`[Sanitization] Parsed counts: curly=${curlyCount}, paren=${parenCount}`)
+        console.log(`[Sanitization] curlyMatch: "${curlyMatch}"`)
+        console.log(`[Sanitization] parenMatch: "${parenMatch}"`)
 
         if (curlyCount > 0 || parenCount > 0) {
           const repaired = attemptBraceRepair(validation.code, {
