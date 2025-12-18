@@ -3,27 +3,38 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { validateMinimal, looksLikeReactCode, attemptBraceRepair } from './react-validator'
 
+// Try to fix common LLM code generation mistakes
+function fixCommonLlmMistakes(code: string): string {
+  let fixed = code
+
+  // Fix })) } pattern - often LLM adds extra ) after .map() or similar
+  // Pattern: })) followed by } on next line (or same line with space)
+  // This usually means there's an extra ) somewhere
+  fixed = fixed.replace(/\}\)\)\s*\n\s*\}/g, '})\n}')
+  fixed = fixed.replace(/\}\)\)\s*\}/g, '})}')
+
+  // Fix )))} pattern
+  fixed = fixed.replace(/\)\)\)\}/g, '))}')
+
+  // Fix cases where return statement has extra parens: return ((...))
+  fixed = fixed.replace(/return\s*\(\s*\(/g, 'return (')
+
+  return fixed
+}
+
 // Try to parse JSX with a simple syntax check
 // Returns null if valid, error message if invalid
 function checkJsxSyntax(code: string): string | null {
   try {
-    // Use acorn or a simple heuristic check
-    // For now, check for common patterns that indicate broken code
-
-    // Check for })) which often indicates malformed code
-    if (/\}\)\)\s*\}/.test(code)) {
-      return 'Suspicious pattern })) found - likely malformed code'
-    }
-
-    // Check for consecutive closing brackets/parens at weird positions
-    if (/\)\)\)\)/.test(code)) {
-      return 'Too many consecutive closing parentheses'
-    }
-
     // Check that function Preview exists and is well-formed
     const previewMatch = code.match(/function\s+Preview\s*\([^)]*\)\s*\{/)
     if (!previewMatch) {
       return 'No valid Preview function declaration found'
+    }
+
+    // Check for very suspicious patterns (5+ consecutive closing parens/braces)
+    if (/[\)\}]{5,}/.test(code)) {
+      return 'Too many consecutive closing brackets - likely malformed'
     }
 
     return null // Valid
@@ -235,8 +246,15 @@ export async function sanitizeReactCode(rawCode: string): Promise<SanitizationRe
       const validation = validateMinimal(llmOutput)
 
       if (validation.valid) {
-        // Additional syntax check for common LLM mistakes
-        const syntaxError = checkJsxSyntax(validation.code)
+        // Try to fix common LLM mistakes
+        let finalCode = fixCommonLlmMistakes(validation.code)
+        const wasFixed = finalCode !== validation.code
+        if (wasFixed) {
+          console.log('[Sanitization] Applied LLM mistake fixes')
+        }
+
+        // Additional syntax check
+        const syntaxError = checkJsxSyntax(finalCode)
         if (syntaxError) {
           console.log(`[Sanitization] Syntax check failed: ${syntaxError}`)
           warnings.push(syntaxError)
@@ -245,9 +263,9 @@ export async function sanitizeReactCode(rawCode: string): Promise<SanitizationRe
 
         console.log(`[Sanitization] SUCCESS on attempt ${attempt}`)
         return {
-          code: validation.code, // Use cleaned code (markdown stripped)
+          code: finalCode,
           attempts: attempt,
-          fixesApplied: ['LLM transformation'],
+          fixesApplied: wasFixed ? ['LLM transformation', 'Auto-fix LLM mistakes'] : ['LLM transformation'],
           warnings: []
         }
       }
@@ -283,8 +301,15 @@ export async function sanitizeReactCode(rawCode: string): Promise<SanitizationRe
             // Re-validate the repaired code
             const revalidation = validateMinimal(repaired)
             if (revalidation.valid) {
+              // Try to fix common LLM mistakes
+              let finalCode = fixCommonLlmMistakes(revalidation.code)
+              const wasFixed = finalCode !== revalidation.code
+              if (wasFixed) {
+                console.log('[Sanitization] Applied LLM mistake fixes after repair')
+              }
+
               // Additional syntax check
-              const syntaxError = checkJsxSyntax(revalidation.code)
+              const syntaxError = checkJsxSyntax(finalCode)
               if (syntaxError) {
                 console.log(`[Sanitization] Post-repair syntax check failed: ${syntaxError}`)
                 warnings.push(syntaxError)
@@ -293,9 +318,11 @@ export async function sanitizeReactCode(rawCode: string): Promise<SanitizationRe
 
               console.log(`[Sanitization] SUCCESS after auto-repair on attempt ${attempt}`)
               return {
-                code: revalidation.code,
+                code: finalCode,
                 attempts: attempt,
-                fixesApplied: ['LLM transformation', 'Auto brace repair'],
+                fixesApplied: wasFixed
+                  ? ['LLM transformation', 'Auto brace repair', 'Auto-fix LLM mistakes']
+                  : ['LLM transformation', 'Auto brace repair'],
                 warnings: []
               }
             }
